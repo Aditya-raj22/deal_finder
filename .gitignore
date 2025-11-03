@@ -46,3 +46,6 @@ logs/
 # Config (sensitive)
 config/secrets.yaml
 .env
+.env
+.env.example
+CURRENT_STATUS.md
