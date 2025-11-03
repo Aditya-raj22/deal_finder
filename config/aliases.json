@@ -1,0 +1,42 @@
+{
+  "company_aliases": {
+    "abbvie": ["abbvie inc", "abbvie ltd"],
+    "astrazeneca": ["astrazeneca plc", "az"],
+    "bristol myers squibb": ["bms", "bristol-myers squibb", "bristol-myers squibb company"],
+    "eli lilly": ["lilly", "eli lilly and company"],
+    "glaxosmithkline": ["gsk", "glaxosmithkline plc"],
+    "johnson & johnson": ["j&j", "jnj", "janssen"],
+    "merck": ["merck & co", "merck sharp & dohme", "msd"],
+    "novartis": ["novartis ag", "novartis pharma"],
+    "pfizer": ["pfizer inc"],
+    "roche": ["f hoffmann-la roche", "genentech", "roche holding ag"],
+    "sanofi": ["sanofi-aventis", "sanofi sa"],
+    "takeda": ["takeda pharmaceutical", "takeda pharma"],
+    "amgen": ["amgen inc"],
+    "biogen": ["biogen idec", "biogen inc"],
+    "gilead": ["gilead sciences", "gilead sciences inc"],
+    "vertex": ["vertex pharmaceuticals"],
+    "regeneron": ["regeneron pharmaceuticals"]
+  },
+  "legal_suffixes_to_strip": [
+    "inc",
+    "incorporated",
+    "ltd",
+    "limited",
+    "plc",
+    "corp",
+    "corporation",
+    "ag",
+    "sa",
+    "llc",
+    "llp",
+    "lp",
+    "co",
+    "company",
+    "pharmaceuticals",
+    "pharma",
+    "therapeutics",
+    "biotech",
+    "biotechnology"
+  ]
+}

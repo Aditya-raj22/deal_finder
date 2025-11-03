@@ -1,0 +1,65 @@
+# Deal Finder Configuration
+
+# Therapeutic Area to search for
+THERAPEUTIC_AREA: "immunology_inflammation"
+
+# Date range
+START_DATE: "2021-01-01"
+END_DATE: null  # null = runtime UTC date
+
+# Early stage allowed phases
+EARLY_STAGE_ALLOWED:
+  - "preclinical"
+  - "phase 1"
+  - "phase I"
+  - "first-in-human"
+  - "FIH"
+
+# Deal types allowed
+DEAL_TYPES_ALLOWED:
+  - "M&A"
+  - "partnership"
+  - "licensing"
+  - "option-to-license"
+
+# Convergence criteria (reduced for Perplexity - it's more accurate)
+DRY_RUNS_TO_CONVERGE: 3
+
+# Currency settings
+CURRENCY_BASE: "USD"
+FX_PROVIDER: "ECB"
+FX_FALLBACK_PROVIDER: "OpenExchangeRates"
+
+# Language processing
+LANGUAGE_POLICY:
+  DISCOVERY_LANGUAGES: ["*"]  # accept all languages
+  EXTRACTION_LANGUAGE: "en"   # translate then extract
+  MT_PROVIDER: "google"       # google, deepl, or mymemory
+  CACHE_TRANSLATIONS: true
+
+# TA Bootstrapper (one-time vocab generation)
+TA_BOOTSTRAP:
+  ENABLE: true
+  LLM_PROVIDER: "openai"  # or "openai"
+  MODEL: "gpt-5"
+  API_KEY_ENV: "OPENAI_API_KEY"  # environment variable name
+  REASONING:
+    effort: "high"
+  TEXT:
+    verbosity: "high"
+
+# Web scraping settings
+REQUEST_RATE_LIMIT_PER_DOMAIN_PER_MIN: 15
+USER_AGENT: "DealsCrawler/1.0 (Research; +https://example.com/bot)"
+TIMEOUT_SECONDS: 20
+MAX_RETRIES: 3
+BACKOFF_FACTOR: 2
+
+# Input/Output
+EXISTING_DATASET_PATH: null  # path to existing Excel to augment
+OUTPUT_DIR: "output"
+EVIDENCE_LOG_FORMAT: "jsonl"  # jsonl or csv
+
+# Logging
+LOG_LEVEL: "INFO"
+LOG_FILE: "logs/deal_finder.log"

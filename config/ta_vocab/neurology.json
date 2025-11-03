@@ -1,0 +1,79 @@
+{
+  "therapeutic_area": "neurology",
+  "includes": [
+    "alzheimer",
+    "parkinson",
+    "huntington",
+    "amyotrophic lateral sclerosis",
+    "als",
+    "multiple sclerosis",
+    "epilepsy",
+    "seizure",
+    "migraine",
+    "neuropathy",
+    "neurodegeneration",
+    "neurodegenerative",
+    "dementia",
+    "cognitive impairment",
+    "spinal muscular atrophy",
+    "sma",
+    "stroke",
+    "traumatic brain injury",
+    "tbi",
+    "neuromuscular",
+    "myasthenia gravis",
+    "guillain-barre",
+    "cns",
+    "central nervous system",
+    "neurological",
+    "neurology"
+  ],
+  "excludes": [
+    "psychiatric",
+    "depression",
+    "anxiety",
+    "schizophrenia",
+    "bipolar",
+    "mental health",
+    "oncology",
+    "cancer",
+    "tumor",
+    "glioblastoma",
+    "brain tumor",
+    "brain cancer"
+  ],
+  "synonyms": {
+    "alzheimer": ["alzheimer's disease", "ad"],
+    "parkinson": ["parkinson's disease", "pd"],
+    "huntington": ["huntington's disease", "hd"],
+    "amyotrophic lateral sclerosis": ["als", "lou gehrig's disease"],
+    "multiple sclerosis": ["ms"],
+    "spinal muscular atrophy": ["sma"],
+    "traumatic brain injury": ["tbi"],
+    "central nervous system": ["cns"]
+  },
+  "regex": {
+    "include_patterns": [
+      "\\bneurodegener\\w+\\b",
+      "\\bneurolog\\w+\\b",
+      "\\bneuro\\w+\\b",
+      "\\bCNS\\b",
+      "\\bdementia\\b",
+      "\\balzheimer\\w*\\b",
+      "\\bparkinson\\w*\\b"
+    ],
+    "exclude_patterns": [
+      "\\bpsychiatr\\w+\\b",
+      "\\bdepression\\b",
+      "\\banxiety\\b",
+      "\\bschizophreni\\w+\\b",
+      "\\btumor\\b",
+      "\\bglioblastoma\\b"
+    ]
+  },
+  "generated_by": {
+    "model": "manual",
+    "version": "2025-01",
+    "frozen": true
+  }
+}
