@@ -79,15 +79,19 @@ def main():
         logger.warning(f"\n⚠ Keywords file not found: {keywords_file}")
         logger.warning("Proceeding with crawl test anyway...")
 
-    # CRAWL ALL 5 SITES
+    # CRAWL ALL 7 SITES (with new additions)
     logger.info("\n" + "=" * 80)
-    logger.info("Crawling All 5 Sitemaps")
+    logger.info("Crawling All 7 Sitemaps")
     logger.info("=" * 80)
+
+    # Get URL filters from config
+    url_filters = config.URL_FILTERS
 
     crawler = ExhaustiveSiteCrawler(
         from_date=start_date,
         to_date=end_date,
-        use_index=True  # Use incremental crawling
+        use_index=True,  # Use incremental crawling
+        url_filters=url_filters
     )
 
     # Crawl all sites

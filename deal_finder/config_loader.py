@@ -56,6 +56,7 @@ class Config(BaseModel):
     EVIDENCE_LOG_FORMAT: str = Field(default="jsonl")
     LOG_LEVEL: str = Field(default="INFO")
     LOG_FILE: str = Field(default="logs/deal_finder.log")
+    URL_FILTERS: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
 
     @property
     def end_date_resolved(self) -> str:

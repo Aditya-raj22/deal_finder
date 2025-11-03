@@ -60,6 +60,44 @@ EXISTING_DATASET_PATH: null  # path to existing Excel to augment
 OUTPUT_DIR: "output"
 EVIDENCE_LOG_FORMAT: "jsonl"  # jsonl or csv
 
+# URL Filtering (per-site allowlist/blocklist patterns)
+URL_FILTERS:
+  'BioPharma Dive':
+    allow:
+      - '^https://www\.biopharmadive\.com/news/'
+    block:
+      - '^https://www\.biopharmadive\.com/(topic|about|press|events|newsletters)/'
+  'FierceBiotech':
+    allow:
+      - '^https://www\.fiercebiotech\.com/'
+    block:
+      - '^https://www\.fiercebiotech\.com/(tag|terms|privacy|sitemap)/'
+  'FiercePharma':
+    allow:
+      - '^https://www\.fiercepharma\.com/'
+    block:
+      - '^https://www\.fiercepharma\.com/(tag|terms|privacy|sitemap)/'
+  'Endpoints News':
+    allow:
+      - '^https://(endpts\.com|endpoints\.news)/'
+    block:
+      - '^https://(endpts\.com|endpoints\.news)/(deep-dive|misc|tag)/'
+  'GEN':
+    allow:
+      - '^https://www\.genengnews\.com/'
+    block:
+      - '^https://www\.genengnews\.com/(tag|privacy|terms)/'
+  'BioWorld':
+    allow:
+      - '^https://www\.bioworld\.com/'
+    block:
+      - '^https://www\.bioworld\.com/(tag|privacy|terms)/'
+  'BioPharmaDealmakers':
+    allow:
+      - '^https://www\.nature\.com/biopharmdeal/'
+    block:
+      - '^https://www\.nature\.com/biopharmdeal/(subjects|collections)/'
+
 # Logging
 LOG_LEVEL: "INFO"
 LOG_FILE: "logs/deal_finder.log"

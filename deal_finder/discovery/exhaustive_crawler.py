@@ -1,10 +1,11 @@
 """Exhaustive site crawler for comprehensive deal coverage."""
 
 import logging
+import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 from xml.etree import ElementTree as ET
 
 import requests
@@ -19,7 +20,7 @@ class ExhaustiveSiteCrawler:
     """Crawl specific sites exhaustively to get ALL articles in date range."""
 
     # Reliable biotech/pharma news sites with RSS/XML feeds
-    # ALL 5 SITES - Deduplication handled in pipeline
+    # ALL 7 SITES - Deduplication handled in pipeline
     PRIORITY_SITES = {
         'FierceBiotech': {
             'rss_feeds': [
@@ -53,12 +54,29 @@ class ExhaustiveSiteCrawler:
                 'https://www.biopharmadive.com/feeds/news/',
             ],
             'sitemap': 'https://www.biopharmadive.com/sitemap.xml',
+            # Skip old archives - only fetch 2021+ monthly archives
+            'skip_old_archives': True,
+            'min_archive_year': 2021,
         },
         'Endpoints News': {
             'rss_feeds': [
                 'https://endpts.com/feed/',
             ],
             'sitemap': 'https://endpts.com/sitemap.xml',
+            # Increase sub-sitemap depth to capture more articles
+            'max_subsitemaps': 40,
+        },
+        'BioWorld': {
+            'rss_feeds': [
+                'https://www.bioworld.com/rss',
+            ],
+            'sitemap': 'https://www.bioworld.com/sitemap.xml',
+        },
+        'BioPharmaDealmakers': {
+            'rss_feeds': [
+                'https://www.nature.com/biopharmdeal.rss',
+            ],
+            'sitemap': 'https://www.nature.com/biopharmdeal/sitemap.xml',
         },
     }
 
@@ -68,7 +86,8 @@ class ExhaustiveSiteCrawler:
         to_date: str,
         timeout: int = 30,
         use_index: bool = True,
-        index_path: Optional[Path] = None
+        index_path: Optional[Path] = None,
+        url_filters: Optional[Dict[str, Dict[str, List[str]]]] = None
     ):
         """Initialize exhaustive crawler.
 
@@ -78,6 +97,7 @@ class ExhaustiveSiteCrawler:
             timeout: Request timeout in seconds
             use_index: Use URL index for incremental crawling (default: True)
             index_path: Path to index file (default: output/url_index.json)
+            url_filters: Per-site URL filters with 'allow' and 'block' regex patterns
         """
         # Parse dates and make them timezone-aware (UTC) for comparison
         from datetime import timezone
@@ -86,6 +106,15 @@ class ExhaustiveSiteCrawler:
         self.timeout = timeout
         self.use_index = use_index
         self.url_index = URLIndex(index_path) if use_index else None
+        self.url_filters = url_filters or {}
+
+        # Compile regex patterns for efficiency
+        self._compiled_filters = {}
+        for site_name, filters in self.url_filters.items():
+            self._compiled_filters[site_name] = {
+                'allow': [re.compile(pattern) for pattern in filters.get('allow', [])],
+                'block': [re.compile(pattern) for pattern in filters.get('block', [])]
+            }
 
         # Reusable Selenium client (initialized on first use)
         self._selenium_client = None
@@ -103,6 +132,35 @@ class ExhaustiveSiteCrawler:
 
         if use_index:
             logger.info(f"Incremental crawling enabled: {self.url_index.get_stats()}")
+
+    def _should_include_url(self, url: str, site_name: str) -> bool:
+        """Check if URL should be included based on allow/block patterns.
+
+        Args:
+            url: URL to check
+            site_name: Name of the site
+
+        Returns:
+            True if URL should be included, False otherwise
+        """
+        if site_name not in self._compiled_filters:
+            return True  # No filters = include all
+
+        filters = self._compiled_filters[site_name]
+
+        # Check block patterns first (faster to exclude)
+        for block_pattern in filters['block']:
+            if block_pattern.search(url):
+                return False
+
+        # Check allow patterns (must match at least one if any are defined)
+        if filters['allow']:
+            for allow_pattern in filters['allow']:
+                if allow_pattern.search(url):
+                    return True
+            return False  # Had allow patterns but none matched
+
+        return True  # No allow patterns = include (already passed block check)
 
     def _fetch_rss_feed(self, feed_url: str) -> List[dict]:
         """Fetch all articles from RSS feed.
@@ -191,7 +249,7 @@ class ExhaustiveSiteCrawler:
             logger.info("Initialized Selenium client (will be reused)")
         return self._selenium_client
 
-    def _fetch_sitemap_selenium(self, sitemap_url: str) -> List[dict]:
+    def _fetch_sitemap_selenium(self, sitemap_url: str, site_name: str = None, site_config: dict = None) -> List[dict]:
         """Fetch sitemap using Selenium to bypass Cloudflare.
 
         Returns:
@@ -213,30 +271,62 @@ class ExhaustiveSiteCrawler:
             # Handle sitemap index (links to other sitemaps)
             sitemap_locs = root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}sitemap/{http://www.sitemaps.org/schemas/sitemap/0.9}loc')
             if sitemap_locs:
-                # LIMIT: Only fetch first 10 sub-sitemaps to avoid 30+ minute crawls
-                max_sitemaps = 10
+                # Get max_sitemaps from site config (default 10)
+                max_sitemaps = site_config.get('max_subsitemaps', 10) if site_config else 10
                 total_sitemaps = len(sitemap_locs)
+
+                # Filter out old BioPharma Dive archives if configured
+                if site_config and site_config.get('skip_old_archives') and site_config.get('min_archive_year'):
+                    min_year = site_config['min_archive_year']
+                    filtered_locs = []
+                    for loc in sitemap_locs:
+                        url = loc.text
+                        # Skip sitemap-topics.xml and sitemap-footer.xml for BioPharma Dive
+                        if 'sitemap-topics' in url or 'sitemap-footer' in url:
+                            logger.info(f"  Skipping non-article sitemap: {url}")
+                            continue
+                        # Check for year in URL (e.g., sitemap-2016-01.xml)
+                        import re
+                        year_match = re.search(r'sitemap-(\d{4})', url)
+                        if year_match:
+                            year = int(year_match.group(1))
+                            if year < min_year:
+                                logger.info(f"  Skipping old archive: {url} (year {year} < {min_year})")
+                                continue
+                        filtered_locs.append(loc)
+                    sitemap_locs = filtered_locs
+                    logger.info(f"  Filtered to {len(sitemap_locs)} relevant sitemaps (from {total_sitemaps})")
+
+                # Limit to max_subsitemaps
                 sitemap_locs = sitemap_locs[:max_sitemaps]
 
                 logger.info(f"Found sitemap index with {total_sitemaps} sub-sitemaps (fetching first {len(sitemap_locs)})")
                 for i, sitemap_loc in enumerate(sitemap_locs, 1):
                     logger.info(f"  Fetching sub-sitemap {i}/{len(sitemap_locs)}: {sitemap_loc.text}")
-                    sub_articles = self._fetch_sitemap(sitemap_loc.text)  # Recursive
+                    sub_articles = self._fetch_sitemap(sitemap_loc.text, site_name, site_config)  # Recursive
                     articles.extend(sub_articles)
                     time.sleep(1)  # Reduced rate limiting (reusing browser)
 
-                if total_sitemaps > max_sitemaps:
-                    logger.info(f"  Skipped {total_sitemaps - max_sitemaps} sub-sitemaps to save time")
+                if len(sitemap_locs) < total_sitemaps:
+                    logger.info(f"  Skipped {total_sitemaps - len(sitemap_locs)} sub-sitemaps")
 
                 return articles
 
             # Handle regular sitemap (list of URLs)
             urls = root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}url')
+            filtered_count = 0
             for url in urls:
                 loc = url.find('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')
                 lastmod = url.find('{http://www.sitemaps.org/schemas/sitemap/0.9}lastmod')
 
                 if loc is not None and loc.text:
+                    url_str = loc.text.strip()
+
+                    # Apply URL filtering if site_name provided
+                    if site_name and not self._should_include_url(url_str, site_name):
+                        filtered_count += 1
+                        continue
+
                     # Parse last modified date
                     published_date = None
                     if lastmod is not None and lastmod.text:
@@ -251,12 +341,14 @@ class ExhaustiveSiteCrawler:
                             continue
 
                     articles.append({
-                        'url': loc.text.strip(),
+                        'url': url_str,
                         'title': '',
                         'published_date': published_date.strftime("%Y-%m-%d") if published_date else None,
                         'source': 'Sitemap'
                     })
 
+            if filtered_count > 0:
+                logger.info(f"Selenium: Filtered out {filtered_count} URLs based on allow/block patterns")
             logger.info(f"Selenium fetched {len(articles)} URLs from sitemap")
             return articles
 
@@ -264,8 +356,13 @@ class ExhaustiveSiteCrawler:
             logger.warning(f"Selenium sitemap fetch failed for {sitemap_url}: {e}")
             return []
 
-    def _fetch_sitemap(self, sitemap_url: str) -> List[dict]:
+    def _fetch_sitemap(self, sitemap_url: str, site_name: str = None, site_config: dict = None) -> List[dict]:
         """Fetch all article URLs from XML sitemap.
+
+        Args:
+            sitemap_url: URL of the sitemap
+            site_name: Name of the site (for filtering)
+            site_config: Site configuration dict
 
         Returns:
             List of article dicts with url, lastmod
@@ -277,7 +374,7 @@ class ExhaustiveSiteCrawler:
             # If blocked by Cloudflare, use Selenium
             if response.status_code == 403:
                 logger.info(f"Sitemap blocked by Cloudflare, using Selenium: {sitemap_url}")
-                return self._fetch_sitemap_selenium(sitemap_url)
+                return self._fetch_sitemap_selenium(sitemap_url, site_name, site_config)
 
             response.raise_for_status()
 
@@ -287,31 +384,62 @@ class ExhaustiveSiteCrawler:
             # Handle sitemap index (links to other sitemaps)
             sitemap_locs = root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}sitemap/{http://www.sitemaps.org/schemas/sitemap/0.9}loc')
             if sitemap_locs:
-                # LIMIT: Only fetch first 10 sub-sitemaps to avoid long crawls
-                max_sitemaps = 10
+                # Get max_sitemaps from site config (default 10)
+                max_sitemaps = site_config.get('max_subsitemaps', 10) if site_config else 10
                 total_sitemaps = len(sitemap_locs)
+
+                # Filter out old BioPharma Dive archives if configured
+                if site_config and site_config.get('skip_old_archives') and site_config.get('min_archive_year'):
+                    min_year = site_config['min_archive_year']
+                    filtered_locs = []
+                    for loc in sitemap_locs:
+                        url = loc.text
+                        # Skip sitemap-topics.xml and sitemap-footer.xml for BioPharma Dive
+                        if 'sitemap-topics' in url or 'sitemap-footer' in url:
+                            logger.info(f"  Skipping non-article sitemap: {url}")
+                            continue
+                        # Check for year in URL (e.g., sitemap-2016-01.xml)
+                        year_match = re.search(r'sitemap-(\d{4})', url)
+                        if year_match:
+                            year = int(year_match.group(1))
+                            if year < min_year:
+                                logger.info(f"  Skipping old archive: {url} (year {year} < {min_year})")
+                                continue
+                        filtered_locs.append(loc)
+                    sitemap_locs = filtered_locs
+                    logger.info(f"  Filtered to {len(sitemap_locs)} relevant sitemaps (from {total_sitemaps})")
+
+                # Limit to max_subsitemaps
                 sitemap_locs = sitemap_locs[:max_sitemaps]
 
                 logger.info(f"Found sitemap index with {total_sitemaps} sub-sitemaps (fetching first {len(sitemap_locs)})")
                 for i, sitemap_loc in enumerate(sitemap_locs, 1):
                     logger.info(f"  Fetching sub-sitemap {i}/{len(sitemap_locs)}: {sitemap_loc.text}")
-                    sub_articles = self._fetch_sitemap(sitemap_loc.text)
+                    sub_articles = self._fetch_sitemap(sitemap_loc.text, site_name, site_config)
                     articles.extend(sub_articles)
                     time.sleep(2)  # Rate limiting - be respectful
 
-                if total_sitemaps > max_sitemaps:
-                    logger.info(f"  Skipped {total_sitemaps - max_sitemaps} sub-sitemaps to save time")
+                if len(sitemap_locs) < total_sitemaps:
+                    logger.info(f"  Skipped {total_sitemaps - len(sitemap_locs)} sub-sitemaps")
 
                 logger.info(f"Completed {len(sitemap_locs)} sub-sitemaps, total articles: {len(articles)}")
                 return articles
 
             # Handle regular sitemap (list of URLs)
             urls = root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}url')
+            filtered_count = 0
             for url in urls:
                 loc = url.find('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')
                 lastmod = url.find('{http://www.sitemaps.org/schemas/sitemap/0.9}lastmod')
 
                 if loc is not None and loc.text:
+                    url_str = loc.text.strip()
+
+                    # Apply URL filtering if site_name provided
+                    if site_name and not self._should_include_url(url_str, site_name):
+                        filtered_count += 1
+                        continue
+
                     # Parse last modified date
                     published_date = None
                     if lastmod is not None and lastmod.text:
@@ -332,12 +460,14 @@ class ExhaustiveSiteCrawler:
                             continue
 
                     articles.append({
-                        'url': loc.text.strip(),
+                        'url': url_str,
                         'title': '',
                         'published_date': published_date.strftime("%Y-%m-%d") if published_date else None,
                         'source': 'Sitemap'
                     })
 
+            if filtered_count > 0:
+                logger.info(f"Filtered out {filtered_count} URLs based on allow/block patterns")
             logger.info(f"Fetched {len(articles)} URLs from sitemap {sitemap_url}")
             return articles
 
@@ -368,7 +498,7 @@ class ExhaustiveSiteCrawler:
         sitemap_url = site_config.get('sitemap')
         if sitemap_url:
             logger.info(f"  Fetching sitemap: {sitemap_url}")
-            articles = self._fetch_sitemap(sitemap_url)
+            articles = self._fetch_sitemap(sitemap_url, site_name, site_config)
             for article in articles:
                 url = article['url']
                 if url not in seen_urls:
