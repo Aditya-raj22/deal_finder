@@ -1,5 +1,6 @@
 """Exhaustive site crawler for comprehensive deal coverage."""
 
+import gzip
 import logging
 import re
 import time
@@ -66,12 +67,12 @@ class ExhaustiveSiteCrawler:
             # Increase sub-sitemap depth to capture more articles
             'max_subsitemaps': 40,
         },
-        'BioWorld': {
-            'rss_feeds': [
-                'https://www.bioworld.com/rss',
-            ],
-            'sitemap': 'https://www.bioworld.com/sitemap.xml',
-        },
+        # 'BioWorld': {
+        #     'rss_feeds': [
+        #         'https://www.bioworld.com/rss',
+        #     ],
+        #     'sitemap': 'https://www.bioworld.com/sitemap.xml',
+        # },
         'BioPharmaDealmakers': {
             'rss_feeds': [
                 'https://www.nature.com/biopharmdeal.rss',
@@ -378,7 +379,17 @@ class ExhaustiveSiteCrawler:
 
             response.raise_for_status()
 
-            root = ET.fromstring(response.content)
+            # Decompress if gzipped (BioWorld uses .xml.gz)
+            content = response.content
+            if sitemap_url.endswith('.gz'):
+                try:
+                    content = gzip.decompress(content)
+                    logger.debug(f"Decompressed gzipped sitemap: {sitemap_url}")
+                except Exception as e:
+                    logger.warning(f"Failed to decompress gzipped sitemap {sitemap_url}: {e}")
+                    return []
+
+            root = ET.fromstring(content)
             articles = []
 
             # Handle sitemap index (links to other sitemaps)

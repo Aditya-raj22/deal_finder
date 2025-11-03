@@ -198,15 +198,19 @@ def main():
 
     logger.info("✓ API key found")
 
-    # STEP 1: Crawl sitemaps (ALL 5 SITES NOW!)
+    # STEP 1: Crawl sitemaps (ALL 7 SITES NOW!)
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 1: Crawl Sitemaps (All 5 Sites)")
+    logger.info("STEP 1: Crawl Sitemaps (All 7 Sites)")
     logger.info("=" * 80)
+
+    # Get URL filters from config
+    url_filters = config.URL_FILTERS
 
     crawler = ExhaustiveSiteCrawler(
         from_date=start_date,
         to_date=end_date,
-        use_index=True
+        use_index=True,
+        url_filters=url_filters
     )
 
     discovered_urls = crawler.crawl_all_sites()

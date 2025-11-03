@@ -94,9 +94,9 @@ URL_FILTERS:
       - '^https://www\.bioworld\.com/(tag|privacy|terms)/'
   'BioPharmaDealmakers':
     allow:
-      - '^https://www\.nature\.com/biopharmdeal/'
+      - '^https://www\.nature\.com/articles/d43747-'
     block:
-      - '^https://www\.nature\.com/biopharmdeal/(subjects|collections)/'
+      - '^https://www\.nature\.com/(subjects|collections)/'
 
 # Logging
 LOG_LEVEL: "INFO"
