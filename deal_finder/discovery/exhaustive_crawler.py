@@ -42,14 +42,14 @@ class ExhaustiveSiteCrawler:
             'sitemap': 'https://www.fiercepharma.com/sitemap.xml',
             'archive_pattern': 'https://www.fiercepharma.com/archives/{year}/{month}'
         },
-        'GEN': {
-            'rss_feeds': [
-                'https://www.genengnews.com/feed/',
-                'https://www.genengnews.com/topics/bioprocessing/feed/',
-                'https://www.genengnews.com/topics/drug-discovery/feed/',
-            ],
-            'sitemap': 'https://www.genengnews.com/sitemap.xml',
-        },
+        # 'GEN': {
+        #     'rss_feeds': [
+        #         'https://www.genengnews.com/feed/',
+        #         'https://www.genengnews.com/topics/bioprocessing/feed/',
+        #         'https://www.genengnews.com/topics/drug-discovery/feed/',
+        #     ],
+        #     'sitemap': 'https://www.genengnews.com/sitemap.xml',
+        # },
         'BioPharma Dive': {
             'rss_feeds': [
                 'https://www.biopharmadive.com/feeds/news/',
