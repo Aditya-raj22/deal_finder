@@ -125,6 +125,24 @@ class URLIndex:
             'index_path': str(self.index_path)
         }
 
+    def get_all_urls_with_metadata(self) -> list[dict]:
+        """Get all URLs from index with metadata.
+
+        Returns:
+            List of article metadata dicts with url, source, published_date
+        """
+        articles = []
+        for url in self.crawled_urls:
+            meta = self.url_metadata.get(url, {})
+            articles.append({
+                "url": url,
+                "source": meta.get("source", "Unknown"),
+                "published_date": meta.get("published_date", ""),
+                "title": ""  # Title not stored in index
+            })
+        logger.info(f"Loaded {len(articles)} URLs from index")
+        return articles
+
     def reset(self):
         """Reset index (for fresh crawl)."""
         self.crawled_urls = set()

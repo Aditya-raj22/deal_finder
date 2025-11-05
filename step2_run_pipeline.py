@@ -140,6 +140,11 @@ def main():
         default="config/generated_keywords.json",
         help="Path to generated keywords file (from Step 1)"
     )
+    parser.add_argument(
+        "--skip-crawl",
+        action="store_true",
+        help="Skip crawling and load URLs from existing index (for resuming)"
+    )
 
     args = parser.parse_args()
 
@@ -200,62 +205,140 @@ def main():
 
     # STEP 1: Crawl sitemaps (ALL 7 SITES NOW!)
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 1: Crawl Sitemaps (All 7 Sites)")
-    logger.info("=" * 80)
 
-    # Get URL filters from config
-    url_filters = config.URL_FILTERS
+    if args.skip_crawl:
+        logger.info("STEP 1: Load URLs from Index (--skip-crawl)")
+        logger.info("=" * 80)
+        from deal_finder.discovery.url_index import URLIndex
+        url_index = URLIndex()
+        discovered_urls = url_index.get_all_urls_with_metadata()
+        logger.info(f"✓ Loaded {len(discovered_urls)} article URLs from index")
+    else:
+        logger.info("STEP 1: Crawl Sitemaps (All 7 Sites)")
+        logger.info("=" * 80)
 
-    crawler = ExhaustiveSiteCrawler(
-        from_date=start_date,
-        to_date=end_date,
-        use_index=True,
-        url_filters=url_filters
-    )
+        # Get URL filters from config
+        url_filters = config.URL_FILTERS
 
-    discovered_urls = crawler.crawl_all_sites()
-    logger.info(f"✓ Discovered {len(discovered_urls)} article URLs from all sites")
+        crawler = ExhaustiveSiteCrawler(
+            from_date=start_date,
+            to_date=end_date,
+            use_index=True,
+            url_filters=url_filters
+        )
 
-    # STEP 2: Fetch content
+        discovered_urls = crawler.crawl_all_sites()
+        logger.info(f"✓ Discovered {len(discovered_urls)} article URLs from all sites")
+
+    # STEP 2: Fetch content (PARALLEL)
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 2: Fetch Article Content")
+    logger.info("STEP 2: Fetch Article Content (3 Parallel Workers)")
     logger.info("=" * 80)
 
-    web_client = SeleniumWebClient(headless=True, timeout=20)
-    articles = []
-    fetch_failures = 0
+    # Group URLs by source
+    from collections import defaultdict
+    urls_by_source = defaultdict(list)
+    for article_meta in discovered_urls:
+        source = article_meta.get("source", "Unknown")
+        urls_by_source[source].append(article_meta)
 
-    for i, article_meta in enumerate(discovered_urls, 1):
-        url = article_meta["url"]
+    logger.info("URLs by source:")
+    for source, urls in urls_by_source.items():
+        logger.info(f"  {source}: {len(urls)} URLs")
 
-        if i % 50 == 0 or i == 1:
-            logger.info(f"Progress: {i}/{len(discovered_urls)} ({fetch_failures} failures)")
+    # Create 3 balanced worker groups (~16,872 URLs each)
+    endpoints_urls = urls_by_source.get("Endpoints News", [])
+    endpoints_split_20 = int(len(endpoints_urls) * 0.2)  # 20% to worker 2, 80% to worker 3
 
-        try:
-            html = web_client.fetch(url)
-            if not html:
-                fetch_failures += 1
-                continue
+    worker_groups = [
+        ("Worker-1-Fierce+Dive",
+         urls_by_source.get("FierceBiotech", []) +
+         urls_by_source.get("BioPharma Dive", [])),  # 17,867
+        ("Worker-2-Pharma+BP+Some-Endpoints",
+         urls_by_source.get("FiercePharma", []) +
+         urls_by_source.get("BioPharmaDealmakers", []) +
+         endpoints_urls[:endpoints_split_20]),  # 11,761 + 1,197 + ~3,958 = 16,916
+        ("Worker-3-Most-Endpoints",
+         endpoints_urls[endpoints_split_20:])  # ~15,832
+    ]
 
-            soup = BeautifulSoup(html, "lxml")
-            text = soup.get_text(separator=" ", strip=True)
+    logger.info("\nBalanced worker distribution:")
+    for name, urls in worker_groups:
+        logger.info(f"  {name}: {len(urls)} URLs")
 
-            if len(text) < 500:
-                continue
+    # Worker function
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from threading import Lock
+    import time
 
-            articles.append({
-                "url": url,
-                "title": article_meta.get("title", ""),
-                "published_date": article_meta.get("published_date", ""),
-                "content": text[:20000]
-            })
+    progress_lock = Lock()
+    total_processed = [0]
+    total_failures = [0]
 
-        except Exception as e:
-            logger.warning(f"Error fetching {url}: {e}")
-            fetch_failures += 1
+    def fetch_worker(worker_name, article_list):
+        """Worker function to fetch articles."""
+        worker_logger = logging.getLogger(worker_name)
+        web_client = SeleniumWebClient(headless=True, timeout=5)
+        worker_articles = []
+        worker_failures = 0
 
-    web_client.close()
-    logger.info(f"✓ Fetched {len(articles)} articles ({fetch_failures} failures)")
+        for i, article_meta in enumerate(article_list, 1):
+            url = article_meta["url"]
+
+            try:
+                html = web_client.fetch(url)
+                if not html:
+                    worker_failures += 1
+                    continue
+
+                soup = BeautifulSoup(html, "lxml")
+                text = soup.get_text(separator=" ", strip=True)
+
+                if len(text) < 500:
+                    continue
+
+                worker_articles.append({
+                    "url": url,
+                    "title": article_meta.get("title", ""),
+                    "published_date": article_meta.get("published_date", ""),
+                    "content": text[:20000],
+                    "source": article_meta.get("source", "Unknown")
+                })
+
+            except Exception as e:
+                worker_failures += 1
+
+            # Update progress every 50 articles
+            if i % 50 == 0:
+                with progress_lock:
+                    total_processed[0] += 50
+                    logger.info(f"Overall Progress: {total_processed[0]}/{len(discovered_urls)} (~{total_failures[0]} failures)")
+
+        web_client.close()
+        worker_logger.info(f"{worker_name} finished: {len(worker_articles)} articles, {worker_failures} failures")
+        return worker_articles, worker_failures
+
+    # Run parallel workers
+    logger.info("\nStarting 3 parallel workers...")
+    all_articles = []
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(fetch_worker, name, urls): name
+            for name, urls in worker_groups if len(urls) > 0
+        }
+
+        for future in as_completed(futures):
+            worker_name = futures[future]
+            try:
+                worker_articles, worker_failures = future.result()
+                all_articles.extend(worker_articles)
+                total_failures[0] += worker_failures
+            except Exception as e:
+                logger.error(f"{worker_name} crashed: {e}")
+
+    articles = all_articles
+    logger.info(f"✓ Fetched {len(articles)} articles ({total_failures[0]} failures)")
 
     # STEP 3: Title-based deduplication (BEFORE keyword filter)
     logger.info("\n" + "=" * 80)

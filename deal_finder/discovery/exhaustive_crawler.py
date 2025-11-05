@@ -31,7 +31,8 @@ class ExhaustiveSiteCrawler:
                 'https://www.fiercebiotech.com/regulatory/rss',
             ],
             'sitemap': 'https://www.fiercebiotech.com/sitemap.xml',
-            'archive_pattern': 'https://www.fiercebiotech.com/archives/{year}/{month}'
+            'archive_pattern': 'https://www.fiercebiotech.com/archives/{year}/{month}',
+            'max_subsitemaps': 51,  # Fetch all sitemaps
         },
         'FiercePharma': {
             'rss_feeds': [
@@ -40,7 +41,8 @@ class ExhaustiveSiteCrawler:
                 'https://www.fiercepharma.com/partnering/rss',
             ],
             'sitemap': 'https://www.fiercepharma.com/sitemap.xml',
-            'archive_pattern': 'https://www.fiercepharma.com/archives/{year}/{month}'
+            'archive_pattern': 'https://www.fiercepharma.com/archives/{year}/{month}',
+            'max_subsitemaps': 34,  # Fetch all sitemaps
         },
         # 'GEN': {
         #     'rss_feeds': [
@@ -58,14 +60,15 @@ class ExhaustiveSiteCrawler:
             # Skip old archives - only fetch 2021+ monthly archives
             'skip_old_archives': True,
             'min_archive_year': 2021,
+            'max_subsitemaps': 150,  # Fetch all (has ~141 total, after filtering ~139)
         },
         'Endpoints News': {
             'rss_feeds': [
                 'https://endpts.com/feed/',
             ],
             'sitemap': 'https://endpts.com/sitemap.xml',
-            # Increase sub-sitemap depth to capture more articles
-            'max_subsitemaps': 40,
+            # Fetch all sub-sitemaps
+            'max_subsitemaps': 50,  # Has ~33 total
         },
         # 'BioWorld': {
         #     'rss_feeds': [
@@ -78,6 +81,7 @@ class ExhaustiveSiteCrawler:
                 'https://www.nature.com/biopharmdeal.rss',
             ],
             'sitemap': 'https://www.nature.com/biopharmdeal/sitemap.xml',
+            'max_subsitemaps': 124,  # Fetch all sitemaps (has 124 total)
         },
     }
 
