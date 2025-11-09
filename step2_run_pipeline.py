@@ -790,7 +790,7 @@ def main():
                 "therapeutic_area": deal.therapeutic_area,
                 "asset_focus": deal.asset_focus,
                 "deal_type_detailed": deal.deal_type_detailed,
-                "source_url": deal.source_url,
+                "source_url": str(deal.source_url) if deal.source_url else None,
                 "needs_review": deal.needs_review,
                 "upfront_value_usd": str(deal.upfront_value_usd) if deal.upfront_value_usd else None,
                 "contingent_payment_usd": str(deal.contingent_payment_usd) if deal.contingent_payment_usd else None,
