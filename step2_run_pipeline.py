@@ -32,7 +32,7 @@ from deal_finder.discovery.exhaustive_crawler import ExhaustiveSiteCrawler
 from deal_finder.utils.selenium_client import SeleniumWebClient
 from deal_finder.extraction.perplexity_extractor import PerplexityExtractor
 from deal_finder.normalization import CompanyCanonicalizer
-from deal_finder.models import Deal, FieldEvidence
+from deal_finder.models import Deal, FieldEvidence, Evidence
 from deal_finder.output import ExcelWriter
 from bs4 import BeautifulSoup
 from decimal import Decimal
@@ -705,6 +705,16 @@ def main():
                 logger.warning(f"Skipping deal - missing fields: {missing_fields} - {url}")
                 continue
 
+            # Create evidence object if key_evidence exists
+            key_evidence = parsed.get("key_evidence", "")
+            evidence_obj = None
+            if key_evidence:
+                evidence_obj = FieldEvidence(
+                    date_announced=Evidence(snippet_en=key_evidence, raw_phrase=key_evidence),
+                    target=Evidence(snippet_en=key_evidence, raw_phrase=key_evidence),
+                    acquirer=Evidence(snippet_en=key_evidence, raw_phrase=key_evidence)
+                )
+
             deal = Deal(
                 date_announced=parsed["date_announced"],
                 target=company_canonicalizer.canonicalize(parsed["target"]),
@@ -723,11 +733,7 @@ def main():
                 detected_currency=parsed.get("currency"),
                 fx_rate=Decimal("1.0") if parsed.get("currency") == "USD" else None,
                 fx_source="Perplexity",
-                evidence=FieldEvidence(
-                    date_announced=parsed.get("key_evidence", ""),
-                    target=parsed.get("key_evidence", ""),
-                    acquirer=parsed.get("key_evidence", "")
-                ),
+                evidence=evidence_obj,
                 inclusion_reason=f"Keyword + Perplexity (conf: {parsed.get('confidence', 'unknown')})",
                 timestamp_utc=datetime.utcnow().isoformat()
             )
