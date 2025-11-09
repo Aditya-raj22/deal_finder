@@ -214,6 +214,11 @@ def main():
         action="store_true",
         help="Skip OpenAI extraction and use extraction checkpoint"
     )
+    parser.add_argument(
+        "--skip-parsing",
+        action="store_true",
+        help="Skip parsing and use parsing checkpoint"
+    )
 
     args = parser.parse_args()
 
@@ -598,71 +603,179 @@ def main():
 
     # STEP 6: Parse results
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 6: Parse Results")
-    logger.info("=" * 80)
 
-    company_canonicalizer = CompanyCanonicalizer(aliases)
-    extracted_deals = []
-    perplexity_rejected = []
+    if args.skip_parsing:
+        logger.info("STEP 6: Loading from parsing checkpoint (--skip-parsing)")
+        logger.info("=" * 80)
 
-    for i, extraction in enumerate(extractions):
-        article = passed_articles[i]
-        url = article["url"]
+        parsing_checkpoint_file = Path("output/parsing_checkpoint.json")
+        if not parsing_checkpoint_file.exists():
+            logger.error("❌ Parsing checkpoint not found! Run without --skip-parsing first.")
+            return 1
 
-        if not extraction:
-            keyword_matches = article.get("keyword_matches", {})
-            perplexity_rejected.append({
-                "url": url,
-                "title": article.get("title", ""),
-                "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),  # First 10
-                "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
-                "perplexity_reason": "No deal found or did not match criteria"
-            })
-            continue
+        with open(parsing_checkpoint_file) as f:
+            checkpoint_data = json.load(f)
+            # Load extracted deals
+            extracted_deals_data = checkpoint_data.get("extracted_deals", [])
+            perplexity_rejected = checkpoint_data.get("perplexity_rejected", [])
 
-        parsed = openai_extractor.parse_extracted_deal(extraction, therapeutic_area)
+            # Reconstruct Deal objects
+            extracted_deals = []
+            for deal_data in extracted_deals_data:
+                deal = Deal(
+                    date_announced=datetime.fromisoformat(deal_data["date_announced"]).date() if isinstance(deal_data["date_announced"], str) else deal_data["date_announced"],
+                    target=deal_data["target"],
+                    acquirer=deal_data["acquirer"],
+                    stage=deal_data.get("stage"),
+                    therapeutic_area=deal_data.get("therapeutic_area"),
+                    asset_focus=deal_data.get("asset_focus"),
+                    deal_type_detailed=deal_data.get("deal_type_detailed"),
+                    source_url=deal_data.get("source_url"),
+                    needs_review=deal_data.get("needs_review", False),
+                    upfront_value_usd=Decimal(str(deal_data["upfront_value_usd"])) if deal_data.get("upfront_value_usd") else None,
+                    contingent_payment_usd=Decimal(str(deal_data["contingent_payment_usd"])) if deal_data.get("contingent_payment_usd") else None,
+                    total_deal_value_usd=Decimal(str(deal_data["total_deal_value_usd"])) if deal_data.get("total_deal_value_usd") else None,
+                    upfront_pct_total=Decimal(str(deal_data["upfront_pct_total"])) if deal_data.get("upfront_pct_total") else None,
+                    geography=deal_data.get("geography"),
+                    detected_currency=deal_data.get("detected_currency"),
+                    fx_rate=Decimal(str(deal_data["fx_rate"])) if deal_data.get("fx_rate") else None,
+                    fx_source=deal_data.get("fx_source"),
+                    evidence=FieldEvidence(
+                        date_announced=deal_data.get("evidence", {}).get("date_announced", ""),
+                        target=deal_data.get("evidence", {}).get("target", ""),
+                        acquirer=deal_data.get("evidence", {}).get("acquirer", "")
+                    ) if deal_data.get("evidence") else None,
+                    inclusion_reason=deal_data.get("inclusion_reason"),
+                    timestamp_utc=deal_data.get("timestamp_utc")
+                )
+                extracted_deals.append(deal)
 
-        if not parsed:
-            keyword_matches = article.get("keyword_matches", {})
-            perplexity_rejected.append({
-                "url": url,
-                "title": article.get("title", ""),
-                "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
-                "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
-                "perplexity_reason": "Parsing failed or filtered out"
-            })
-            continue
+        logger.info(f"✓ Loaded {len(extracted_deals)} deals and {len(perplexity_rejected)} rejected from checkpoint")
+    else:
+        logger.info("STEP 6: Parse Results")
+        logger.info("=" * 80)
 
-        deal = Deal(
-            date_announced=parsed["date_announced"],
-            target=company_canonicalizer.canonicalize(parsed["target"]),
-            acquirer=company_canonicalizer.canonicalize(parsed["acquirer"]),
-            stage=parsed["stage"],
-            therapeutic_area=parsed["therapeutic_area"],
-            asset_focus=parsed["asset_focus"],
-            deal_type_detailed=parsed["deal_type"],
-            source_url=parsed["url"],
-            needs_review=parsed["needs_review"],
-            upfront_value_usd=parsed["upfront_value_usd"],
-            contingent_payment_usd=parsed["contingent_payment_usd"],
-            total_deal_value_usd=parsed["total_deal_value_usd"],
-            upfront_pct_total=parsed["upfront_pct_total"],
-            geography=parsed["geography"],
-            detected_currency=parsed["currency"],
-            fx_rate=Decimal("1.0") if parsed["currency"] == "USD" else None,
-            fx_source="Perplexity",
-            evidence=FieldEvidence(
-                date_announced=parsed["evidence"],
-                target=parsed["evidence"],
-                acquirer=parsed["evidence"]
-            ),
-            inclusion_reason=f"Keyword + Perplexity (conf: {parsed['confidence']})",
-            timestamp_utc=datetime.utcnow().isoformat()
-        )
+        company_canonicalizer = CompanyCanonicalizer(aliases)
+        extracted_deals = []
+        perplexity_rejected = []
 
-        extracted_deals.append(deal)
+        for i, extraction in enumerate(extractions):
+            article = passed_articles[i]
+            url = article["url"]
+
+            if not extraction:
+                keyword_matches = article.get("keyword_matches", {})
+                perplexity_rejected.append({
+                    "url": url,
+                    "title": article.get("title", ""),
+                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),  # First 10
+                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
+                    "perplexity_reason": "No deal found or did not match criteria"
+                })
+                continue
+
+            parsed = openai_extractor.parse_extracted_deal(extraction, therapeutic_area)
+
+            if not parsed:
+                keyword_matches = article.get("keyword_matches", {})
+                perplexity_rejected.append({
+                    "url": url,
+                    "title": article.get("title", ""),
+                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
+                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
+                    "perplexity_reason": "Parsing failed or filtered out"
+                })
+                continue
+
+            # Validate parsed has all required fields
+            required_fields = ["target", "acquirer", "date_announced"]
+            missing_fields = [f for f in required_fields if f not in parsed]
+            if missing_fields:
+                keyword_matches = article.get("keyword_matches", {})
+                perplexity_rejected.append({
+                    "url": url,
+                    "title": article.get("title", ""),
+                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
+                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
+                    "perplexity_reason": f"Missing required fields: {', '.join(missing_fields)}"
+                })
+                logger.warning(f"Skipping deal - missing fields: {missing_fields} - {url}")
+                continue
+
+            deal = Deal(
+                date_announced=parsed["date_announced"],
+                target=company_canonicalizer.canonicalize(parsed["target"]),
+                acquirer=company_canonicalizer.canonicalize(parsed["acquirer"]),
+                stage=parsed.get("stage"),
+                therapeutic_area=parsed.get("therapeutic_area"),
+                asset_focus=parsed.get("asset_focus"),
+                deal_type_detailed=parsed.get("deal_type"),
+                source_url=parsed.get("url", url),
+                needs_review=parsed.get("needs_review", False),
+                upfront_value_usd=parsed.get("upfront_value_usd"),
+                contingent_payment_usd=parsed.get("contingent_payment_usd"),
+                total_deal_value_usd=parsed.get("total_deal_value_usd"),
+                upfront_pct_total=parsed.get("upfront_pct_total"),
+                geography=parsed.get("geography"),
+                detected_currency=parsed.get("currency"),
+                fx_rate=Decimal("1.0") if parsed.get("currency") == "USD" else None,
+                fx_source="Perplexity",
+                evidence=FieldEvidence(
+                    date_announced=parsed.get("evidence", ""),
+                    target=parsed.get("evidence", ""),
+                    acquirer=parsed.get("evidence", "")
+                ),
+                inclusion_reason=f"Keyword + Perplexity (conf: {parsed.get('confidence', 'unknown')})",
+                timestamp_utc=datetime.utcnow().isoformat()
+            )
+
+            extracted_deals.append(deal)
+
+        # Save parsing checkpoint
+        parsing_checkpoint_file = Path("output/parsing_checkpoint.json")
+        parsing_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert deals to dict for JSON serialization
+        extracted_deals_data = []
+        for deal in extracted_deals:
+            deal_dict = {
+                "date_announced": deal.date_announced.isoformat() if deal.date_announced else None,
+                "target": deal.target,
+                "acquirer": deal.acquirer,
+                "stage": deal.stage,
+                "therapeutic_area": deal.therapeutic_area,
+                "asset_focus": deal.asset_focus,
+                "deal_type_detailed": deal.deal_type_detailed,
+                "source_url": deal.source_url,
+                "needs_review": deal.needs_review,
+                "upfront_value_usd": str(deal.upfront_value_usd) if deal.upfront_value_usd else None,
+                "contingent_payment_usd": str(deal.contingent_payment_usd) if deal.contingent_payment_usd else None,
+                "total_deal_value_usd": str(deal.total_deal_value_usd) if deal.total_deal_value_usd else None,
+                "upfront_pct_total": str(deal.upfront_pct_total) if deal.upfront_pct_total else None,
+                "geography": deal.geography,
+                "detected_currency": deal.detected_currency,
+                "fx_rate": str(deal.fx_rate) if deal.fx_rate else None,
+                "fx_source": deal.fx_source,
+                "evidence": {
+                    "date_announced": deal.evidence.date_announced if deal.evidence else "",
+                    "target": deal.evidence.target if deal.evidence else "",
+                    "acquirer": deal.evidence.acquirer if deal.evidence else ""
+                } if deal.evidence else None,
+                "inclusion_reason": deal.inclusion_reason,
+                "timestamp_utc": deal.timestamp_utc
+            }
+            extracted_deals_data.append(deal_dict)
+
+        with open(parsing_checkpoint_file, 'w') as f:
+            json.dump({
+                "extracted_deals": extracted_deals_data,
+                "perplexity_rejected": perplexity_rejected,
+                "timestamp": datetime.utcnow().isoformat()
+            }, f)
+        logger.info(f"✓ Saved parsing checkpoint: {len(extracted_deals)} deals")
 
     logger.info(f"✓ Extracted {len(extracted_deals)} deals")
 
