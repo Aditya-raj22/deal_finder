@@ -249,7 +249,8 @@ def main():
     with open(keywords_file) as f:
         keyword_data = json.load(f)
 
-    ta_keywords = keyword_data["keywords"]["ta_keywords"]
+    # Use partial TA keywords for better matching (catches immunology, inflammation, etc.)
+    ta_keywords = ["immun", "infla", "i&i"]  # Partial matching
     stage_keywords = keyword_data["keywords"]["stage_keywords"]
     deal_keywords = keyword_data["keywords"]["deal_keywords"]
 
@@ -494,15 +495,15 @@ def main():
         logger.info("STEP 4: Keyword Pre-Filter")
         logger.info("=" * 80)
 
-        # Relaxed filter - only require TA keywords, let LLM do heavy filtering
+        # Smart filter: TA partial match + stage keywords + money mentions
         keyword_filter = KeywordFilter(
             ta_keywords=ta_keywords,
             stage_keywords=stage_keywords,
             deal_keywords=deal_keywords,
             require_deal_keyword=False,  # Don't require deal keywords
-            min_ta_matches=1,  # Only need 1 TA keyword (immunology OR inflammation, etc.)
-            min_deal_matches=1,  # Not used since require_deal_keyword=False
-            require_money_mention=False  # Don't require $ amounts
+            min_ta_matches=1,  # Need 1 TA partial match (immun OR infla OR i&i)
+            min_deal_matches=1,  # Not used
+            require_money_mention=True  # Must mention money (dollar, euro, $, €, USD, etc.)
         )
 
         filter_results = keyword_filter.filter_articles(articles)

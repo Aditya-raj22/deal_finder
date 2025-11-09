@@ -46,10 +46,11 @@ class KeywordFilter:
         self.min_deal_matches = min_deal_matches
         self.require_money_mention = require_money_mention
 
-        # Regex for detecting money mentions
-        # Matches: $50M, $100 million, $1.2B, €50M, £100M, $50MM, etc.
+        # Regex for detecting money mentions (relaxed)
+        # Matches: $50M, €100M, "dollar", "euro", "USD", "EUR", etc.
         self.money_pattern = re.compile(
-            r'[\$€£¥]\s*\d+(?:\.\d+)?(?:\s*)?(?:million|billion|m|b|mn|bn|mm)?',
+            r'(?:[\$€£¥]\s*\d+(?:\.\d+)?(?:\s*)?(?:million|billion|m|b|mn|bn|mm)?|'
+            r'\b(?:dollar|euro|usd|eur|gbp)\b)',
             re.IGNORECASE
         )
 
@@ -117,17 +118,25 @@ class KeywordFilter:
                 money_str = f", ${money_mentions[0]}" if has_money else ""
                 reason = f"Matched: {len(ta_matches)} TA, {len(stage_matches)} stage, {len(deal_matches)} deal{money_str}"
         else:
-            # Relaxed: just need TA + stage (useful for very broad filtering)
+            # Relaxed: just need TA + stage + optional money
             passed = has_enough_ta and has_stage
+
+            # Add money requirement if enabled
+            if self.require_money_mention:
+                passed = passed and has_money
+
             if not passed:
                 missing = []
                 if not has_enough_ta:
                     missing.append(f"TA (need {self.min_ta_matches}, got {len(ta_matches)})")
                 if not has_stage:
                     missing.append("stage")
+                if self.require_money_mention and not has_money:
+                    missing.append("money mention")
                 reason = f"Missing: {', '.join(missing)}"
             else:
-                reason = f"Matched: {len(ta_matches)} TA, {len(stage_matches)} stage keywords"
+                money_str = f", ${money_mentions[0]}" if has_money else ""
+                reason = f"Matched: {len(ta_matches)} TA, {len(stage_matches)} stage{money_str}"
 
         return {
             "passed": passed,
