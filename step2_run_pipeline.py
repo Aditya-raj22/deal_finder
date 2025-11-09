@@ -205,6 +205,11 @@ def main():
         action="store_true",
         help="Skip filtering and use filter checkpoint"
     )
+    parser.add_argument(
+        "--skip-extraction",
+        action="store_true",
+        help="Skip OpenAI extraction and use extraction checkpoint"
+    )
 
     args = parser.parse_args()
 
@@ -550,12 +555,42 @@ def main():
 
     # STEP 5: OpenAI GPT-4o-mini extraction (replaces Perplexity)
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 5: OpenAI Extraction (GPT-4o-mini, Two-Pass + Parallel)")
-    logger.info("=" * 80)
 
+    # Initialize extractor (needed for parsing even if we skip extraction)
     from deal_finder.extraction.openai_extractor import OpenAIExtractor
     openai_extractor = OpenAIExtractor(api_key=openai_key, batch_size=10)
-    extractions = openai_extractor.extract_batch(passed_articles, ta_vocab)
+
+    if args.skip_extraction:
+        logger.info("STEP 5: Loading from extraction checkpoint (--skip-extraction)")
+        logger.info("=" * 80)
+
+        extraction_checkpoint_file = Path("output/extraction_checkpoint.json")
+        if not extraction_checkpoint_file.exists():
+            logger.error("❌ Extraction checkpoint not found! Run without --skip-extraction first.")
+            return 1
+
+        with open(extraction_checkpoint_file) as f:
+            checkpoint_data = json.load(f)
+            extractions = checkpoint_data.get("extractions", [])
+            passed_articles = checkpoint_data.get("articles", [])
+
+        logger.info(f"✓ Loaded {len(extractions)} extractions from checkpoint")
+    else:
+        logger.info("STEP 5: OpenAI Extraction (GPT-4o-mini, Two-Pass + Parallel)")
+        logger.info("=" * 80)
+
+        extractions = openai_extractor.extract_batch(passed_articles, ta_vocab)
+
+        # Save extraction checkpoint
+        extraction_checkpoint_file = Path("output/extraction_checkpoint.json")
+        extraction_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(extraction_checkpoint_file, 'w') as f:
+            json.dump({
+                "extractions": extractions,
+                "articles": passed_articles,
+                "timestamp": datetime.utcnow().isoformat()
+            }, f)
+        logger.info(f"✓ Saved extraction checkpoint: {len(extractions)} extractions")
 
     # STEP 6: Parse results
     logger.info("\n" + "=" * 80)
