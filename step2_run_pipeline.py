@@ -640,10 +640,11 @@ def main():
                     detected_currency=deal_data.get("detected_currency"),
                     fx_rate=Decimal(str(deal_data["fx_rate"])) if deal_data.get("fx_rate") else None,
                     fx_source=deal_data.get("fx_source"),
+                    confidence=Decimal(str(deal_data["confidence"])) if deal_data.get("confidence") else Decimal("1.0"),
                     evidence=FieldEvidence(
-                        date_announced=deal_data.get("evidence", {}).get("date_announced", ""),
-                        target=deal_data.get("evidence", {}).get("target", ""),
-                        acquirer=deal_data.get("evidence", {}).get("acquirer", "")
+                        date_announced=Evidence(**deal_data["evidence"]["date_announced"]) if deal_data.get("evidence", {}).get("date_announced") else None,
+                        target=Evidence(**deal_data["evidence"]["target"]) if deal_data.get("evidence", {}).get("target") else None,
+                        acquirer=Evidence(**deal_data["evidence"]["acquirer"]) if deal_data.get("evidence", {}).get("acquirer") else None
                     ) if deal_data.get("evidence") else None,
                     inclusion_reason=deal_data.get("inclusion_reason"),
                     timestamp_utc=deal_data.get("timestamp_utc")
@@ -786,10 +787,10 @@ def main():
                 "date_announced": deal.date_announced.isoformat() if deal.date_announced else None,
                 "target": deal.target,
                 "acquirer": deal.acquirer,
-                "stage": deal.stage,
+                "stage": str(deal.stage) if deal.stage else None,
                 "therapeutic_area": deal.therapeutic_area,
                 "asset_focus": deal.asset_focus,
-                "deal_type_detailed": deal.deal_type_detailed,
+                "deal_type_detailed": str(deal.deal_type_detailed) if deal.deal_type_detailed else None,
                 "source_url": str(deal.source_url) if deal.source_url else None,
                 "needs_review": deal.needs_review,
                 "upfront_value_usd": str(deal.upfront_value_usd) if deal.upfront_value_usd else None,
@@ -800,10 +801,11 @@ def main():
                 "detected_currency": deal.detected_currency,
                 "fx_rate": str(deal.fx_rate) if deal.fx_rate else None,
                 "fx_source": deal.fx_source,
+                "confidence": str(deal.confidence) if deal.confidence else None,
                 "evidence": {
-                    "date_announced": deal.evidence.date_announced if deal.evidence else "",
-                    "target": deal.evidence.target if deal.evidence else "",
-                    "acquirer": deal.evidence.acquirer if deal.evidence else ""
+                    "date_announced": deal.evidence.date_announced.model_dump() if deal.evidence and deal.evidence.date_announced else None,
+                    "target": deal.evidence.target.model_dump() if deal.evidence and deal.evidence.target else None,
+                    "acquirer": deal.evidence.acquirer.model_dump() if deal.evidence and deal.evidence.acquirer else None
                 } if deal.evidence else None,
                 "inclusion_reason": deal.inclusion_reason,
                 "timestamp_utc": deal.timestamp_utc
