@@ -695,8 +695,23 @@ def main():
                 continue
 
             # Normalize stage and deal_type for enum compatibility
-            stage = (parsed.get("stage") or "unknown").lower()
+            stage_raw = (parsed.get("stage") or "unknown").lower()
             deal_type_raw = (parsed.get("deal_type") or "partnership").lower()
+
+            # Map stage to valid enum values
+            valid_stages = ["preclinical", "phase 1", "first-in-human", "unknown"]
+            if stage_raw not in valid_stages:
+                logger.info(f"Mapping invalid stage '{stage_raw}' to 'unknown' for {url}")
+                stage = "unknown"
+            else:
+                stage = stage_raw
+
+            # Map deal_type to valid enum values
+            valid_deal_types = ["m&a", "partnership", "licensing", "option-to-license"]
+            if deal_type_raw not in valid_deal_types:
+                logger.info(f"Mapping invalid deal_type '{deal_type_raw}' to 'partnership' for {url}")
+                deal_type_raw = "partnership"
+
             deal_type = "M&A" if deal_type_raw == "m&a" else deal_type_raw
 
             # Create Deal object - let Pydantic handle validation
