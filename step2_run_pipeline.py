@@ -623,9 +623,9 @@ def main():
             extracted_deals = []
             for deal_data in extracted_deals_data:
                 deal = Deal(
-                    date_announced=datetime.fromisoformat(deal_data["date_announced"]).date() if isinstance(deal_data["date_announced"], str) else deal_data["date_announced"],
-                    target=deal_data["target"],
-                    acquirer=deal_data["acquirer"],
+                    date_announced=datetime.fromisoformat(deal_data["date_announced"]).date() if deal_data.get("date_announced") else None,
+                    target=deal_data.get("target"),
+                    acquirer=deal_data.get("acquirer"),
                     stage=deal_data.get("stage"),
                     therapeutic_area=deal_data.get("therapeutic_area"),
                     asset_focus=deal_data.get("asset_focus"),
@@ -724,9 +724,9 @@ def main():
                 fx_rate=Decimal("1.0") if parsed.get("currency") == "USD" else None,
                 fx_source="Perplexity",
                 evidence=FieldEvidence(
-                    date_announced=parsed.get("evidence", ""),
-                    target=parsed.get("evidence", ""),
-                    acquirer=parsed.get("evidence", "")
+                    date_announced=parsed.get("key_evidence", ""),
+                    target=parsed.get("key_evidence", ""),
+                    acquirer=parsed.get("key_evidence", "")
                 ),
                 inclusion_reason=f"Keyword + Perplexity (conf: {parsed.get('confidence', 'unknown')})",
                 timestamp_utc=datetime.utcnow().isoformat()
