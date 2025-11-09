@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -381,7 +381,7 @@ def main():
                     json.dump({
                         "fetched_urls": list(fetched_urls),
                         "articles": all_fetched_articles,
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }, f)
                 logger.info(f"✓ Checkpoint saved: {len(fetched_urls)} URLs, {len(all_fetched_articles)} articles")
             except Exception as e:
@@ -597,7 +597,7 @@ def main():
             json.dump({
                 "extractions": extractions,
                 "articles": passed_articles,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }, f)
         logger.info(f"✓ Saved extraction checkpoint: {len(extractions)} extractions")
 
@@ -705,6 +705,22 @@ def main():
                 logger.warning(f"Skipping deal - missing fields: {missing_fields} - {url}")
                 continue
 
+            # Validate stage is early-stage (preclinical, phase 1, first-in-human)
+            stage = parsed.get("stage", "").lower()
+            allowed_stages = ["preclinical", "phase 1", "first-in-human", "unknown"]
+            if stage not in allowed_stages:
+                keyword_matches = article.get("keyword_matches", {})
+                perplexity_rejected.append({
+                    "url": url,
+                    "title": article.get("title", ""),
+                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
+                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
+                    "perplexity_reason": f"Late-stage deal rejected (stage: {stage})"
+                })
+                logger.warning(f"Skipping late-stage deal (stage: {stage}) - {url}")
+                continue
+
             # Create evidence object if key_evidence exists
             key_evidence = parsed.get("key_evidence", "")
             evidence_obj = None
@@ -735,7 +751,7 @@ def main():
                 fx_source="Perplexity",
                 evidence=evidence_obj,
                 inclusion_reason=f"Keyword + Perplexity (conf: {parsed.get('confidence', 'unknown')})",
-                timestamp_utc=datetime.utcnow().isoformat()
+                timestamp_utc=datetime.now(timezone.utc).isoformat()
             )
 
             extracted_deals.append(deal)
@@ -779,7 +795,7 @@ def main():
             json.dump({
                 "extracted_deals": extracted_deals_data,
                 "perplexity_rejected": perplexity_rejected,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }, f)
         logger.info(f"✓ Saved parsing checkpoint: {len(extracted_deals)} deals")
 
