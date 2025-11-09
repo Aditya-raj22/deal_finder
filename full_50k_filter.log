@@ -1,0 +1,64 @@
+2025-11-09 02:11:26,245 - __main__ - INFO - ================================================================================
+2025-11-09 02:11:26,245 - __main__ - INFO - STEP 2: Run Pipeline with Pre-Generated Keywords
+2025-11-09 02:11:26,245 - __main__ - INFO - ================================================================================
+2025-11-09 02:11:26,251 - __main__ - INFO - Therapeutic Area: immunology_inflammation
+2025-11-09 02:11:26,252 - __main__ - INFO - Date Range: 2021-01-01 to 2025-11-09
+2025-11-09 02:11:26,252 - __main__ - INFO - 
+Loading keywords from: config/generated_keywords.json
+2025-11-09 02:11:26,253 - __main__ - INFO - ✓ Loaded 237 TA keywords
+2025-11-09 02:11:26,253 - __main__ - INFO - ✓ Loaded 38 stage keywords
+2025-11-09 02:11:26,253 - __main__ - INFO - ✓ Loaded 61 deal keywords
+2025-11-09 02:11:26,253 - __main__ - INFO - ✓ API key found
+2025-11-09 02:11:26,253 - __main__ - INFO - 
+================================================================================
+2025-11-09 02:11:26,253 - __main__ - INFO - STEP 1: Load URLs from Index (--skip-crawl)
+2025-11-09 02:11:26,253 - __main__ - INFO - ================================================================================
+2025-11-09 02:11:26,329 - deal_finder.discovery.url_index - INFO - Loaded URL index: 50615 URLs already crawled
+2025-11-09 02:11:26,360 - deal_finder.discovery.url_index - INFO - Loaded 50615 URLs from index
+2025-11-09 02:11:26,360 - __main__ - INFO - ✓ Loaded 50615 article URLs from index
+2025-11-09 02:11:26,360 - __main__ - INFO - 
+================================================================================
+2025-11-09 02:11:26,360 - __main__ - INFO - STEP 2: Load Articles from Checkpoint (--skip-fetch)
+2025-11-09 02:11:26,360 - __main__ - INFO - ================================================================================
+2025-11-09 02:11:27,118 - __main__ - INFO - ✓ Loaded checkpoint: 50463 URLs already fetched, 50463 articles
+2025-11-09 02:11:27,118 - __main__ - INFO - ✓ Using 50463 articles from checkpoint
+2025-11-09 02:11:27,118 - __main__ - INFO - 
+================================================================================
+2025-11-09 02:11:27,118 - __main__ - INFO - STEP 3: Deduplication (SKIPPED - will do after keyword filter)
+2025-11-09 02:11:27,118 - __main__ - INFO - ================================================================================
+2025-11-09 02:11:27,118 - __main__ - INFO - Using all 50463 articles for keyword filtering
+2025-11-09 02:11:27,118 - __main__ - INFO - 
+================================================================================
+2025-11-09 02:11:27,118 - __main__ - INFO - STEP 4: Keyword Pre-Filter
+2025-11-09 02:11:27,118 - __main__ - INFO - ================================================================================
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO - KeywordFilter initialized:
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO -   TA keywords: 237
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO -   Stage keywords: 38
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO -   Deal keywords: 61
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO -   Require deal keyword: True
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO -   Min TA matches: 2
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO -   Min deal matches: 2
+2025-11-09 02:11:27,118 - deal_finder.keyword_filter - INFO -   Require money mention: True
+2025-11-09 02:33:03,289 - deal_finder.keyword_filter - INFO - Filter results: 3381/50463 passed (6.7%)
+2025-11-09 02:33:03,306 - __main__ - INFO - ✓ Filter: 3381/50463 passed
+2025-11-09 02:33:03,309 - __main__ - INFO -   Cost savings: $2824.92
+2025-11-09 02:33:03,310 - __main__ - INFO -   Estimated Perplexity cost (before dedup): $202.86
+2025-11-09 02:33:03,310 - __main__ - INFO - 
+================================================================================
+2025-11-09 02:33:03,310 - __main__ - INFO - STEP 4.5: Deduplicate Filtered Articles (Embeddings)
+2025-11-09 02:33:03,310 - __main__ - INFO - ================================================================================
+2025-11-09 02:33:06,798 - __main__ - INFO - Loading sentence transformer model for deduplication...
+2025-11-09 02:33:06,798 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2025-11-09 02:33:07,926 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device: cpu
+2025-11-09 02:33:07,976 - __main__ - INFO - Generating embeddings for 3381 articles...
+Batches:   0%|          | 0/14 [00:00<?, ?it/s]Batches:   7%|▋         | 1/14 [00:00<00:12,  1.05it/s]Batches:  14%|█▍        | 2/14 [00:01<00:11,  1.08it/s]Batches:  21%|██▏       | 3/14 [00:03<00:15,  1.40s/it]Batches:  29%|██▊       | 4/14 [00:05<00:14,  1.44s/it]Batches:  36%|███▌      | 5/14 [00:06<00:12,  1.34s/it]Batches:  43%|████▎     | 6/14 [00:07<00:09,  1.15s/it]Batches:  50%|█████     | 7/14 [00:07<00:06,  1.03it/s]Batches:  57%|█████▋    | 8/14 [00:08<00:05,  1.09it/s]Batches:  64%|██████▍   | 9/14 [00:09<00:04,  1.08it/s]Batches:  71%|███████▏  | 10/14 [00:10<00:03,  1.14it/s]Batches:  79%|███████▊  | 11/14 [00:11<00:02,  1.24it/s]Batches:  86%|████████▌ | 12/14 [00:11<00:01,  1.29it/s]Batches:  93%|█████████▎| 13/14 [00:12<00:00,  1.24it/s]Batches: 100%|██████████| 14/14 [00:12<00:00,  1.53it/s]Batches: 100%|██████████| 14/14 [00:12<00:00,  1.08it/s]
+2025-11-09 02:33:20,967 - __main__ - INFO - Computing similarity matrix...
+2025-11-09 02:33:31,712 - __main__ - INFO - Embeddings deduplication: 3381 → 2861 (667 removed)
+2025-11-09 02:33:31,713 - __main__ - INFO -   Final Perplexity cost (after dedup): $171.66
+2025-11-09 02:33:31,713 - __main__ - INFO - 
+================================================================================
+2025-11-09 02:33:31,713 - __main__ - INFO - FILTER-ONLY MODE: Stopping before Perplexity extraction
+2025-11-09 02:33:31,713 - __main__ - INFO - ================================================================================
+2025-11-09 02:33:31,713 - __main__ - INFO - With current settings (min_ta=2, min_deal=2):
+2025-11-09 02:33:31,713 - __main__ - INFO -   2861 articles would be sent to Perplexity
+2025-11-09 02:33:31,713 - __main__ - INFO -   Estimated cost: $171.66

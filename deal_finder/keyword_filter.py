@@ -8,6 +8,7 @@ to reduce API costs by only sending relevant articles for extraction.
 import logging
 import re
 from typing import List, Dict, Optional
+from multiprocessing import Pool, cpu_count
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,9 @@ class KeywordFilter:
         stage_keywords: List[str],
         deal_keywords: List[str],
         require_deal_keyword: bool = True,
-        min_ta_matches: int = 1
+        min_ta_matches: int = 1,
+        min_deal_matches: int = 1,
+        require_money_mention: bool = False
     ):
         """
         Initialize keyword filter.
@@ -32,12 +35,23 @@ class KeywordFilter:
             deal_keywords: Deal-related keywords
             require_deal_keyword: If True, article MUST have a deal keyword
             min_ta_matches: Minimum number of TA keywords required
+            min_deal_matches: Minimum number of deal keywords required
+            require_money_mention: If True, article MUST mention dollar amounts
         """
         self.ta_keywords = [kw.lower() for kw in ta_keywords]
         self.stage_keywords = [kw.lower() for kw in stage_keywords]
         self.deal_keywords = [kw.lower() for kw in deal_keywords]
         self.require_deal_keyword = require_deal_keyword
         self.min_ta_matches = min_ta_matches
+        self.min_deal_matches = min_deal_matches
+        self.require_money_mention = require_money_mention
+
+        # Regex for detecting money mentions
+        # Matches: $50M, $100 million, $1.2B, €50M, £100M, $50MM, etc.
+        self.money_pattern = re.compile(
+            r'[\$€£¥]\s*\d+(?:\.\d+)?(?:\s*)?(?:million|billion|m|b|mn|bn|mm)?',
+            re.IGNORECASE
+        )
 
         logger.info(f"KeywordFilter initialized:")
         logger.info(f"  TA keywords: {len(self.ta_keywords)}")
@@ -45,6 +59,8 @@ class KeywordFilter:
         logger.info(f"  Deal keywords: {len(self.deal_keywords)}")
         logger.info(f"  Require deal keyword: {require_deal_keyword}")
         logger.info(f"  Min TA matches: {min_ta_matches}")
+        logger.info(f"  Min deal matches: {min_deal_matches}")
+        logger.info(f"  Require money mention: {require_money_mention}")
 
     def matches(self, text: str) -> Dict[str, any]:
         """
@@ -68,25 +84,38 @@ class KeywordFilter:
         stage_matches = self._find_matches(text_lower, self.stage_keywords)
         deal_matches = self._find_matches(text_lower, self.deal_keywords)
 
+        # Check for money mentions
+        money_mentions = self.money_pattern.findall(text)
+        has_money = len(money_mentions) > 0
+
         # Check if passes filter
         has_enough_ta = len(ta_matches) >= self.min_ta_matches
         has_stage = len(stage_matches) > 0
-        has_deal = len(deal_matches) > 0
+        has_enough_deal = len(deal_matches) >= self.min_deal_matches
 
         # Determine if passed
         if self.require_deal_keyword:
-            passed = has_enough_ta and has_stage and has_deal
+            # Base requirements
+            passed = has_enough_ta and has_stage and has_enough_deal
+
+            # Add money requirement if enabled
+            if self.require_money_mention:
+                passed = passed and has_money
+
             if not passed:
                 missing = []
                 if not has_enough_ta:
                     missing.append(f"TA (need {self.min_ta_matches}, got {len(ta_matches)})")
                 if not has_stage:
                     missing.append("stage")
-                if not has_deal:
-                    missing.append("deal")
+                if not has_enough_deal:
+                    missing.append(f"deal (need {self.min_deal_matches}, got {len(deal_matches)})")
+                if self.require_money_mention and not has_money:
+                    missing.append("money mention")
                 reason = f"Missing: {', '.join(missing)}"
             else:
-                reason = f"Matched: {len(ta_matches)} TA, {len(stage_matches)} stage, {len(deal_matches)} deal keywords"
+                money_str = f", ${money_mentions[0]}" if has_money else ""
+                reason = f"Matched: {len(ta_matches)} TA, {len(stage_matches)} stage, {len(deal_matches)} deal{money_str}"
         else:
             # Relaxed: just need TA + stage (useful for very broad filtering)
             passed = has_enough_ta and has_stage
@@ -142,29 +171,51 @@ class KeywordFilter:
                 - "failed": Articles that failed filter
                 - "stats": Summary statistics
         """
-        passed = []
-        failed = []
+        # Use parallel processing for large batches
+        if len(articles) >= 5000:
+            num_workers = min(cpu_count(), 8)
+            chunk_size = max(100, len(articles) // (num_workers * 4))
+            logger.info(f"Using {num_workers} workers for parallel filtering...")
 
-        for article in articles:
-            url = article.get("url", "unknown")
-            content = article.get("content", "")
+            with Pool(num_workers) as pool:
+                results = pool.map(self._filter_worker, articles, chunksize=chunk_size)
 
-            result = self.matches(content)
+            passed = [art for art, res in results if res["passed"]]
+            failed = [art for art, res in results if not res["passed"]]
 
-            if result["passed"]:
-                # Add match info to article
-                article["keyword_matches"] = {
-                    "ta": result["ta_keywords_matched"],
-                    "stage": result["stage_keywords_matched"],
-                    "deal": result["deal_keywords_matched"]
-                }
-                passed.append(article)
-                logger.debug(f"PASS: {url} - {result['reason']}")
-            else:
-                # Store reason for failure
-                article["filter_reason"] = result["reason"]
-                failed.append(article)
-                logger.debug(f"FAIL: {url} - {result['reason']}")
+            # Add match metadata
+            for i, (art, res) in enumerate(results):
+                if res["passed"]:
+                    passed[i - len([r for r in results[:i] if not r[1]["passed"]])]["keyword_matches"] = {
+                        "ta": res["ta_keywords_matched"],
+                        "stage": res["stage_keywords_matched"],
+                        "deal": res["deal_keywords_matched"]
+                    }
+                else:
+                    failed[i - len([r for r in results[:i] if r[1]["passed"]])]["filter_reason"] = res["reason"]
+        else:
+            # Serial processing for small batches
+            passed = []
+            failed = []
+
+            for article in articles:
+                url = article.get("url", "unknown")
+                content = article.get("content", "")
+
+                result = self.matches(content)
+
+                if result["passed"]:
+                    article["keyword_matches"] = {
+                        "ta": result["ta_keywords_matched"],
+                        "stage": result["stage_keywords_matched"],
+                        "deal": result["deal_keywords_matched"]
+                    }
+                    passed.append(article)
+                    logger.debug(f"PASS: {url} - {result['reason']}")
+                else:
+                    article["filter_reason"] = result["reason"]
+                    failed.append(article)
+                    logger.debug(f"FAIL: {url} - {result['reason']}")
 
         # Calculate stats
         stats = {
@@ -181,6 +232,12 @@ class KeywordFilter:
             "failed": failed,
             "stats": stats
         }
+
+    def _filter_worker(self, article: Dict) -> tuple:
+        """Worker function for multiprocessing."""
+        content = article.get("content", "")
+        result = self.matches(content)
+        return (article, result)
 
 
 class DateFilter:

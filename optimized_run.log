@@ -1,0 +1,74 @@
+2025-11-09 11:48:06,562 - __main__ - INFO - ================================================================================
+2025-11-09 11:48:06,562 - __main__ - INFO - STEP 2: Run Pipeline with Pre-Generated Keywords
+2025-11-09 11:48:06,562 - __main__ - INFO - ================================================================================
+2025-11-09 11:48:06,568 - __main__ - INFO - Therapeutic Area: immunology_inflammation
+2025-11-09 11:48:06,568 - __main__ - INFO - Date Range: 2021-01-01 to 2025-11-09
+2025-11-09 11:48:06,568 - __main__ - INFO - 
+Loading keywords from: config/generated_keywords.json
+2025-11-09 11:48:06,569 - __main__ - INFO - ✓ Loaded 237 TA keywords
+2025-11-09 11:48:06,569 - __main__ - INFO - ✓ Loaded 38 stage keywords
+2025-11-09 11:48:06,569 - __main__ - INFO - ✓ Loaded 61 deal keywords
+2025-11-09 11:48:06,569 - __main__ - INFO - ✓ OpenAI API key found
+2025-11-09 11:48:06,569 - __main__ - INFO - 
+================================================================================
+2025-11-09 11:48:06,569 - __main__ - INFO - STEP 1: Load URLs from Index (--skip-crawl)
+2025-11-09 11:48:06,569 - __main__ - INFO - ================================================================================
+2025-11-09 11:48:06,783 - deal_finder.discovery.url_index - INFO - Loaded URL index: 50615 URLs already crawled
+2025-11-09 11:48:06,823 - deal_finder.discovery.url_index - INFO - Loaded 50615 URLs from index
+2025-11-09 11:48:06,823 - __main__ - INFO - ✓ Loaded 50615 article URLs from index
+2025-11-09 11:48:06,823 - __main__ - INFO - 
+================================================================================
+2025-11-09 11:48:06,823 - __main__ - INFO - STEP 2: Load Articles from Checkpoint (--skip-fetch)
+2025-11-09 11:48:06,823 - __main__ - INFO - ================================================================================
+2025-11-09 11:48:07,817 - __main__ - INFO - ✓ Loaded checkpoint: 50463 URLs already fetched, 50463 articles
+2025-11-09 11:48:07,817 - __main__ - INFO - ✓ Using 50463 articles from checkpoint
+2025-11-09 11:48:07,817 - __main__ - INFO - 
+================================================================================
+2025-11-09 11:48:07,817 - __main__ - INFO - STEP 3: Deduplication (SKIPPED - will do after keyword filter)
+2025-11-09 11:48:07,817 - __main__ - INFO - ================================================================================
+2025-11-09 11:48:07,817 - __main__ - INFO - Using all 50463 articles for keyword filtering
+2025-11-09 11:48:07,817 - __main__ - INFO - 
+================================================================================
+2025-11-09 11:48:07,817 - __main__ - INFO - STEP 4: Keyword Pre-Filter
+2025-11-09 11:48:07,817 - __main__ - INFO - ================================================================================
+2025-11-09 11:48:07,817 - deal_finder.keyword_filter - INFO - KeywordFilter initialized:
+2025-11-09 11:48:07,817 - deal_finder.keyword_filter - INFO -   TA keywords: 237
+2025-11-09 11:48:07,817 - deal_finder.keyword_filter - INFO -   Stage keywords: 38
+2025-11-09 11:48:07,817 - deal_finder.keyword_filter - INFO -   Deal keywords: 61
+2025-11-09 11:48:07,818 - deal_finder.keyword_filter - INFO -   Require deal keyword: True
+2025-11-09 11:48:07,818 - deal_finder.keyword_filter - INFO -   Min TA matches: 2
+2025-11-09 11:48:07,818 - deal_finder.keyword_filter - INFO -   Min deal matches: 2
+2025-11-09 11:48:07,818 - deal_finder.keyword_filter - INFO -   Require money mention: True
+2025-11-09 11:48:07,818 - deal_finder.keyword_filter - INFO - Using 8 workers for parallel filtering...
+2025-11-09 11:55:41,567 - deal_finder.keyword_filter - INFO - Filter results: 3381/50463 passed (6.7%)
+2025-11-09 11:55:41,622 - __main__ - INFO - ✓ Keyword Filter: 3381/50463 passed
+2025-11-09 11:55:41,623 - __main__ - INFO -   Cost savings: $2824.92
+2025-11-09 11:55:41,623 - __main__ - INFO - 
+================================================================================
+2025-11-09 11:55:41,623 - __main__ - INFO - STEP 4.5: LLM Pre-Filter (Early-Stage Deals)
+2025-11-09 11:55:41,623 - __main__ - INFO - ================================================================================
+2025-11-09 11:55:42,707 - deal_finder.llm_prefilter - INFO - LLM pre-filter batch 1: 40 articles
+2025-11-09 12:01:24,529 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-09 12:01:24,591 - deal_finder.llm_prefilter - ERROR - Failed to parse LLM response: {
+  "results": [
+    {"passes": false, "reason": "Not a business deal."},
+    {"passes": false, "reason": "Not a business deal."},
+    {"passes": false, "reason": "Not a business deal."},
+    {"passes
+2025-11-09 12:01:25,601 - deal_finder.llm_prefilter - INFO - LLM pre-filter batch 2: 40 articles
+2025-11-09 12:08:01,692 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-09 12:08:01,745 - deal_finder.llm_prefilter - ERROR - Failed to parse LLM response: {
+  "results": [
+    {"passes": false, "reason": "Not a deal, just research news."},
+    {"passes": false, "reason": "Not related to immunology_inflammation."},
+    {"passes": false, "reason": "Not a 
+2025-11-09 12:08:02,752 - deal_finder.llm_prefilter - INFO - LLM pre-filter batch 3: 40 articles
+2025-11-09 12:12:33,337 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-09 12:12:33,353 - deal_finder.llm_prefilter - ERROR - Failed to parse LLM response: {
+  "results": [
+    {"passes": false, "reason": "Not a business deal."},
+    {"passes": false, "reason": "Not a business deal."},
+    {"passes": false, "reason": "Not related to immunology/inflammati
+2025-11-09 12:12:34,366 - deal_finder.llm_prefilter - INFO - LLM pre-filter batch 4: 40 articles
+2025-11-09 12:12:49,402 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-11-09 12:12:50,430 - deal_finder.llm_prefilter - INFO - LLM pre-filter batch 5: 40 articles

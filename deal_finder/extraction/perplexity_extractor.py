@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 class PerplexityExtractor:
     """Extract deal information using Perplexity API."""
 
-    def __init__(self, api_key: Optional[str] = None, batch_size: int = 5):
+    def __init__(self, api_key: Optional[str] = None, batch_size: int = 10):
         """Initialize Perplexity extractor.
 
         Args:
             api_key: Perplexity API key
-            batch_size: Number of articles to process per API call (3-5 recommended)
+            batch_size: Number of articles to process per API call (10-15 for URL-only mode)
         """
         self.client = PerplexityClient(api_key)
         self.batch_size = batch_size

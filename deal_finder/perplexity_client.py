@@ -200,16 +200,18 @@ For EACH article, extract:
 ---
 
 """
-        # Add each article to the prompt
+        # Add each article URL to the prompt (Perplexity will fetch content)
         for i, article in enumerate(articles, 1):
-            content = article.get("content", "")[:10000]  # Limit to 10k chars per article
+            url = article.get('url', 'N/A')
+            title = article.get('title', 'N/A')
             published_date = article.get("published_date", "Unknown")
             batch_prompt += f"""
 ARTICLE {i}:
-URL: {article.get('url', 'N/A')}
-Title: {article.get('title', 'N/A')}
+URL: {url}
+Title: {title}
 Published Date: {published_date}
-Content: {content}
+
+INSTRUCTIONS: Fetch and read the article at the URL above, then extract deal information.
 
 ---
 
@@ -276,8 +278,29 @@ CRITICAL: Return valid JSON only. If information is not found, use null. Always 
                     logger.error(f"Failed to parse JSON from batch extraction: {content[:500]}")
                     return []
 
-            logger.info(f"Successfully extracted {len(results)} deals from batch of {len(articles)} articles")
-            return results
+            # Validate schema
+            if not isinstance(results, list):
+                logger.error(f"Expected list, got {type(results)}")
+                return []
+
+            # Validate each result has required fields
+            validated_results = []
+            required_fields = ["url", "parties", "deal_type"]
+            for i, result in enumerate(results):
+                if not isinstance(result, dict):
+                    logger.warning(f"Result {i} is not a dict, skipping")
+                    continue
+
+                # Check required fields
+                missing = [f for f in required_fields if f not in result]
+                if missing:
+                    logger.warning(f"Result {i} missing fields {missing}, URL: {result.get('url', 'unknown')}")
+                    # Still include it, but log warning
+
+                validated_results.append(result)
+
+            logger.info(f"Successfully extracted {len(validated_results)}/{len(articles)} deals from batch")
+            return validated_results
 
         except Exception as e:
             logger.error(f"Batch extraction failed: {e}")

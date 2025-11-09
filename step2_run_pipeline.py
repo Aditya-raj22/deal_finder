@@ -44,37 +44,82 @@ logger = logging.getLogger(__name__)
 
 def deduplicate_by_title(articles: list) -> list:
     """
-    Remove duplicate articles based on title similarity.
+    Remove duplicate articles using embeddings-based semantic similarity.
+
+    Strategy:
+    1. Generate embeddings for article titles + first 200 chars of content
+    2. Compute pairwise cosine similarity
+    3. Group similar articles (>0.85 similarity)
+    4. Keep longest version from each group
 
     Args:
-        articles: List of article dicts with "title" key
+        articles: List of article dicts with "title" and "content" keys
 
     Returns:
         Deduplicated list
     """
-    unique_articles = []
-    seen_titles = []
-    duplicates_removed = 0
+    from sentence_transformers import SentenceTransformer
+    import numpy as np
+    from sklearn.metrics.pairwise import cosine_similarity
 
+    if not articles:
+        return articles
+
+    logger.info("Loading sentence transformer model for deduplication...")
+    model = SentenceTransformer('all-MiniLM-L6-v2')  # Fast, lightweight model
+
+    # Create text to embed: title + first 200 chars of content
+    texts = []
     for article in articles:
-        title = article.get("title", "").lower()
+        title = article.get("title", "")
+        content = article.get("content", "")[:200]
+        text = f"{title} {content}"
+        texts.append(text)
 
-        # Check if similar title already seen
-        is_duplicate = False
-        for seen_title in seen_titles:
-            similarity = SequenceMatcher(None, title, seen_title).ratio()
-            if similarity > 0.8:  # 80% similar = duplicate
-                is_duplicate = True
-                duplicates_removed += 1
-                logger.debug(f"Duplicate found: '{title}' similar to '{seen_title}'")
-                break
+    logger.info(f"Generating embeddings for {len(texts)} articles...")
+    embeddings = model.encode(texts, show_progress_bar=True, batch_size=256)
 
-        if not is_duplicate:
-            unique_articles.append(article)
-            seen_titles.append(title)
+    logger.info("Computing similarity matrix...")
+    # Compute pairwise cosine similarity
+    similarity_matrix = cosine_similarity(embeddings)
 
-    logger.info(f"Title deduplication: {len(articles)} → {len(unique_articles)} ({duplicates_removed} removed)")
-    return unique_articles
+    # Find duplicates (similarity > 0.85)
+    SIMILARITY_THRESHOLD = 0.85
+    seen = set()
+    duplicates_removed = 0
+    final_articles = []
+
+    for i in range(len(articles)):
+        if i in seen:
+            continue
+
+        # Find all articles similar to this one
+        similar_indices = [j for j in range(len(articles))
+                          if j != i and similarity_matrix[i][j] > SIMILARITY_THRESHOLD]
+
+        if similar_indices:
+            # Found duplicates - keep the longest one
+            group = [i] + similar_indices
+            longest_idx = max(group, key=lambda idx: len(articles[idx].get("content", "")))
+
+            # Mark others as seen
+            for idx in group:
+                if idx != longest_idx:
+                    seen.add(idx)
+                    duplicates_removed += 1
+                    logger.debug(f"Duplicate: '{articles[idx].get('title', '')[:50]}...' (similarity: {similarity_matrix[i][idx]:.2f})")
+
+            # Add longest version if not already added
+            if longest_idx not in seen:
+                final_articles.append(articles[longest_idx])
+                seen.add(longest_idx)
+        else:
+            # No duplicates found
+            final_articles.append(articles[i])
+            seen.add(i)
+
+    logger.info(f"Embeddings deduplication: {len(articles)} → {len(final_articles)} ({duplicates_removed} removed)")
+    return final_articles
 
 
 def deduplicate_deals(deals: list) -> list:
@@ -145,6 +190,21 @@ def main():
         action="store_true",
         help="Skip crawling and load URLs from existing index (for resuming)"
     )
+    parser.add_argument(
+        "--skip-fetch",
+        action="store_true",
+        help="Skip fetching and use only checkpoint articles"
+    )
+    parser.add_argument(
+        "--filter-only",
+        action="store_true",
+        help="Stop after keyword filtering (don't run Perplexity extraction)"
+    )
+    parser.add_argument(
+        "--skip-filter",
+        action="store_true",
+        help="Skip filtering and use filter checkpoint"
+    )
 
     args = parser.parse_args()
 
@@ -183,25 +243,13 @@ def main():
     logger.info(f"✓ Loaded {len(stage_keywords)} stage keywords")
     logger.info(f"✓ Loaded {len(deal_keywords)} deal keywords")
 
-    # Check Perplexity API key
-    perplexity_key = os.getenv("PERPLEXITY_API_KEY")
-    if not perplexity_key:
-        # Try loading from .env.example
-        env_file = Path(__file__).parent / ".env.example"
-        if env_file.exists():
-            with open(env_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("PERPLEXITY_API_KEY="):
-                        perplexity_key = line.split("=", 1)[1]
-                        os.environ["PERPLEXITY_API_KEY"] = perplexity_key
-                        break
-
-    if not perplexity_key:
-        logger.error("❌ PERPLEXITY_API_KEY not set!")
+    # Check OpenAI API key
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        logger.error("❌ OPENAI_API_KEY not set!")
         return 1
 
-    logger.info("✓ API key found")
+    logger.info("✓ OpenAI API key found")
 
     # STEP 1: Crawl sitemaps (ALL 7 SITES NOW!)
     logger.info("\n" + "=" * 80)
@@ -230,153 +278,284 @@ def main():
         discovered_urls = crawler.crawl_all_sites()
         logger.info(f"✓ Discovered {len(discovered_urls)} article URLs from all sites")
 
-    # STEP 2: Fetch content (PARALLEL)
+    # STEP 2: Fetch content (PARALLEL with checkpointing)
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 2: Fetch Article Content (3 Parallel Workers)")
+
+    if args.skip_fetch:
+        logger.info("STEP 2: Load Articles from Checkpoint (--skip-fetch)")
+    else:
+        logger.info("STEP 2: Fetch Article Content (3 Parallel Workers)")
     logger.info("=" * 80)
 
-    # Group URLs by source
-    from collections import defaultdict
-    urls_by_source = defaultdict(list)
-    for article_meta in discovered_urls:
-        source = article_meta.get("source", "Unknown")
-        urls_by_source[source].append(article_meta)
+    # Load checkpoint if exists
+    checkpoint_file = Path("output/fetch_checkpoint.json")
+    fetched_urls = set()
+    checkpoint_articles = []
 
-    logger.info("URLs by source:")
-    for source, urls in urls_by_source.items():
-        logger.info(f"  {source}: {len(urls)} URLs")
+    if checkpoint_file.exists():
+        try:
+            with open(checkpoint_file) as f:
+                checkpoint_data = json.load(f)
+                fetched_urls = set(checkpoint_data.get("fetched_urls", []))
+                checkpoint_articles = checkpoint_data.get("articles", [])
+            logger.info(f"✓ Loaded checkpoint: {len(fetched_urls)} URLs already fetched, {len(checkpoint_articles)} articles")
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint: {e}")
+            fetched_urls = set()
+            checkpoint_articles = []
 
-    # Create 3 balanced worker groups (~16,872 URLs each)
-    endpoints_urls = urls_by_source.get("Endpoints News", [])
-    endpoints_split_20 = int(len(endpoints_urls) * 0.2)  # 20% to worker 2, 80% to worker 3
+    # If skip-fetch, use only checkpoint articles
+    if args.skip_fetch:
+        articles = checkpoint_articles
+        logger.info(f"✓ Using {len(articles)} articles from checkpoint")
+    else:
+        # Filter out already-fetched URLs
+        discovered_urls = [art for art in discovered_urls if art["url"] not in fetched_urls]
+        logger.info(f"Remaining to fetch: {len(discovered_urls)} URLs")
 
-    worker_groups = [
-        ("Worker-1-Fierce+Dive",
-         urls_by_source.get("FierceBiotech", []) +
-         urls_by_source.get("BioPharma Dive", [])),  # 17,867
-        ("Worker-2-Pharma+BP+Some-Endpoints",
-         urls_by_source.get("FiercePharma", []) +
-         urls_by_source.get("BioPharmaDealmakers", []) +
-         endpoints_urls[:endpoints_split_20]),  # 11,761 + 1,197 + ~3,958 = 16,916
-        ("Worker-3-Most-Endpoints",
-         endpoints_urls[endpoints_split_20:])  # ~15,832
-    ]
+        # Group URLs by source
+        from collections import defaultdict
+        urls_by_source = defaultdict(list)
+        for article_meta in discovered_urls:
+            source = article_meta.get("source", "Unknown")
+            urls_by_source[source].append(article_meta)
 
-    logger.info("\nBalanced worker distribution:")
-    for name, urls in worker_groups:
-        logger.info(f"  {name}: {len(urls)} URLs")
+        logger.info("URLs by source:")
+        for source, urls in urls_by_source.items():
+            logger.info(f"  {source}: {len(urls)} URLs")
 
-    # Worker function
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from threading import Lock
-    import time
+        # Create source-dedicated worker groups (3 workers per source)
+        # Each source gets its own workers to avoid rate limiting
+        worker_groups = []
 
-    progress_lock = Lock()
-    total_processed = [0]
-    total_failures = [0]
+        for source, urls in urls_by_source.items():
+            if not urls:
+                continue
 
-    def fetch_worker(worker_name, article_list):
-        """Worker function to fetch articles."""
-        worker_logger = logging.getLogger(worker_name)
-        web_client = SeleniumWebClient(headless=True, timeout=5)
-        worker_articles = []
-        worker_failures = 0
+            # Split this source's URLs into 3 equal chunks
+            chunk_size = len(urls) // 3
 
-        for i, article_meta in enumerate(article_list, 1):
-            url = article_meta["url"]
+            for i in range(3):
+                start = i * chunk_size
+                end = start + chunk_size if i < 2 else len(urls)  # Last worker gets remainder
 
+                worker_name = f"Worker-{source.replace(' ', '')}-{i+1}"
+                worker_urls = urls[start:end]
+
+                if worker_urls:  # Only add if has URLs
+                    worker_groups.append((worker_name, worker_urls))
+
+        logger.info(f"\nSource-dedicated worker distribution ({len(worker_groups)} workers):")
+        for name, urls in worker_groups:
+            logger.info(f"  {name}: {len(urls)} URLs")
+
+        # Worker function
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from threading import Lock
+        import time
+
+        progress_lock = Lock()
+        total_processed = [0]
+        total_failures = [0]
+        all_fetched_articles = checkpoint_articles.copy()  # Start with checkpoint articles
+        checkpoint_counter = [0]
+
+        def save_checkpoint():
+            """Save checkpoint to disk."""
             try:
-                html = web_client.fetch(url)
-                if not html:
+                with open(checkpoint_file, 'w') as f:
+                    json.dump({
+                        "fetched_urls": list(fetched_urls),
+                        "articles": all_fetched_articles,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }, f)
+                logger.info(f"✓ Checkpoint saved: {len(fetched_urls)} URLs, {len(all_fetched_articles)} articles")
+            except Exception as e:
+                logger.error(f"Failed to save checkpoint: {e}")
+
+        def fetch_worker(worker_name, article_list):
+            """Worker function to fetch articles."""
+            worker_logger = logging.getLogger(worker_name)
+            web_client = SeleniumWebClient(headless=True, timeout=5)
+            worker_articles = []
+            worker_failures = 0
+
+            for i, article_meta in enumerate(article_list, 1):
+                url = article_meta["url"]
+
+                try:
+                    html = web_client.fetch(url)
+                    if not html:
+                        worker_failures += 1
+                        continue
+
+                    soup = BeautifulSoup(html, "lxml")
+                    text = soup.get_text(separator=" ", strip=True)
+
+                    if len(text) < 500:
+                        continue
+
+                    article = {
+                        "url": url,
+                        "title": article_meta.get("title", ""),
+                        "published_date": article_meta.get("published_date", ""),
+                        "content": text[:20000],
+                        "source": article_meta.get("source", "Unknown")
+                    }
+                    worker_articles.append(article)
+
+                    # Add to shared list and mark as fetched
+                    with progress_lock:
+                        all_fetched_articles.append(article)
+                        fetched_urls.add(url)
+                        checkpoint_counter[0] += 1
+
+                        # Save checkpoint every 1000 articles
+                        if checkpoint_counter[0] % 1000 == 0:
+                            save_checkpoint()
+
+                except Exception as e:
                     worker_failures += 1
-                    continue
 
-                soup = BeautifulSoup(html, "lxml")
-                text = soup.get_text(separator=" ", strip=True)
+                # Update progress every 50 articles
+                if i % 50 == 0:
+                    with progress_lock:
+                        total_processed[0] += 50
+                        logger.info(f"Overall Progress: {total_processed[0]}/{len(discovered_urls)} (~{total_failures[0]} failures)")
 
-                if len(text) < 500:
-                    continue
+            web_client.close()
+            worker_logger.info(f"{worker_name} finished: {len(worker_articles)} articles, {worker_failures} failures")
+            return worker_articles, worker_failures
 
-                worker_articles.append({
-                    "url": url,
-                    "title": article_meta.get("title", ""),
-                    "published_date": article_meta.get("published_date", ""),
-                    "content": text[:20000],
-                    "source": article_meta.get("source", "Unknown")
-                })
+        # Run parallel workers
+        logger.info(f"\nStarting {len(worker_groups)} parallel workers...")
 
-            except Exception as e:
-                worker_failures += 1
+        with ThreadPoolExecutor(max_workers=len(worker_groups)) as executor:
+            futures = {
+                executor.submit(fetch_worker, name, urls): name
+                for name, urls in worker_groups if len(urls) > 0
+            }
 
-            # Update progress every 50 articles
-            if i % 50 == 0:
-                with progress_lock:
-                    total_processed[0] += 50
-                    logger.info(f"Overall Progress: {total_processed[0]}/{len(discovered_urls)} (~{total_failures[0]} failures)")
+            for future in as_completed(futures):
+                worker_name = futures[future]
+                try:
+                    worker_articles, worker_failures = future.result()
+                    total_failures[0] += worker_failures
+                except Exception as e:
+                    logger.error(f"{worker_name} crashed: {e}")
 
-        web_client.close()
-        worker_logger.info(f"{worker_name} finished: {len(worker_articles)} articles, {worker_failures} failures")
-        return worker_articles, worker_failures
+        # Final checkpoint save
+        save_checkpoint()
 
-    # Run parallel workers
-    logger.info("\nStarting 3 parallel workers...")
-    all_articles = []
+        articles = all_fetched_articles
+        logger.info(f"✓ Fetched {len(articles)} articles total ({total_failures[0]} failures)")
+        logger.info(f"✓ Checkpoint preserved at: {checkpoint_file}")
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(fetch_worker, name, urls): name
-            for name, urls in worker_groups if len(urls) > 0
-        }
-
-        for future in as_completed(futures):
-            worker_name = futures[future]
-            try:
-                worker_articles, worker_failures = future.result()
-                all_articles.extend(worker_articles)
-                total_failures[0] += worker_failures
-            except Exception as e:
-                logger.error(f"{worker_name} crashed: {e}")
-
-    articles = all_articles
-    logger.info(f"✓ Fetched {len(articles)} articles ({total_failures[0]} failures)")
-
-    # STEP 3: Title-based deduplication (BEFORE keyword filter)
+    # STEP 3: Skip deduplication for now (will do after keyword filter)
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 3: Deduplicate by Title")
+    logger.info("STEP 3: Deduplication (SKIPPED - will do after keyword filter)")
     logger.info("=" * 80)
+    logger.info(f"Using all {len(articles)} articles for keyword filtering")
 
-    articles = deduplicate_by_title(articles)
+    # STEP 4: Load from checkpoint or run filter
+    if args.skip_filter:
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4: Loading from keyword filter checkpoint (--skip-filter)")
+        logger.info("=" * 80)
 
-    # STEP 4: Keyword filter
-    logger.info("\n" + "=" * 80)
-    logger.info("STEP 4: Keyword Pre-Filter")
-    logger.info("=" * 80)
+        keyword_checkpoint_file = Path("output/keyword_checkpoint.json")
+        if not keyword_checkpoint_file.exists():
+            logger.error("❌ Keyword filter checkpoint not found! Run without --skip-filter first.")
+            return 1
 
-    keyword_filter = KeywordFilter(
-        ta_keywords=ta_keywords,
-        stage_keywords=stage_keywords,
-        deal_keywords=deal_keywords,
-        require_deal_keyword=True,
-        min_ta_matches=1
-    )
+        with open(keyword_checkpoint_file) as f:
+            checkpoint_data = json.load(f)
+            passed_articles = checkpoint_data.get("articles", [])
 
-    filter_results = keyword_filter.filter_articles(articles)
-    passed_articles = filter_results["passed"]
+        logger.info(f"✓ Loaded {len(passed_articles)} articles from keyword filter checkpoint")
 
-    logger.info(f"✓ Filter: {len(passed_articles)}/{len(articles)} passed")
-    logger.info(f"  Cost savings: ${(len(articles) - len(passed_articles)) * 0.06:.2f}")
+    else:
+        # STEP 4: Keyword filter
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4: Keyword Pre-Filter")
+        logger.info("=" * 80)
+
+        keyword_filter = KeywordFilter(
+            ta_keywords=ta_keywords,
+            stage_keywords=stage_keywords,
+            deal_keywords=deal_keywords,
+            require_deal_keyword=True,
+            min_ta_matches=2,
+            min_deal_matches=2,
+            require_money_mention=True
+        )
+
+        filter_results = keyword_filter.filter_articles(articles)
+        passed_articles = filter_results["passed"]
+
+        logger.info(f"✓ Keyword Filter: {len(passed_articles)}/{len(articles)} passed")
+        logger.info(f"  Cost savings: ${(len(articles) - len(passed_articles)) * 0.06:.2f}")
+
+        # Save checkpoint after keyword filter
+        keyword_checkpoint_file = Path("output/keyword_checkpoint.json")
+        keyword_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(keyword_checkpoint_file, 'w') as f:
+            json.dump({"articles": passed_articles}, f)
+        logger.info(f"✓ Saved keyword filter checkpoint: {len(passed_articles)} articles")
+
+        # STEP 4.5: LLM Pre-filter (GPT-4o-mini for early-stage deals)
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4.5: LLM Pre-Filter (Early-Stage Deals)")
+        logger.info("=" * 80)
+
+        from deal_finder.llm_prefilter import LLMPreFilter
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            llm_filter = LLMPreFilter(api_key=openai_key, batch_size=20)
+            llm_results = llm_filter.filter_articles(passed_articles, therapeutic_area)
+            passed_articles = llm_results["passed"]
+            logger.info(f"  LLM filter cost: ${llm_results['cost']:.2f}")
+        else:
+            logger.warning("⚠ OPENAI_API_KEY not set, skipping LLM pre-filter")
+
+        logger.info(f"  Estimated Perplexity cost (before dedup): ${len(passed_articles) * 0.06:.2f}")
+
+        # STEP 4.6: Deduplicate filtered articles with embeddings
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4.5: Deduplicate Filtered Articles (Embeddings)")
+        logger.info("=" * 80)
+
+        passed_articles = deduplicate_by_title(passed_articles)
+        logger.info(f"  Final Perplexity cost (after dedup): ${len(passed_articles) * 0.06:.2f}")
+
+        # Save checkpoint after filtering
+        filter_checkpoint_file = Path("output/filter_checkpoint.json")
+        filter_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(filter_checkpoint_file, 'w') as f:
+            json.dump({"articles": passed_articles}, f)
+        logger.info(f"✓ Saved filter checkpoint: {len(passed_articles)} articles")
+
+    if args.filter_only:
+        logger.info("\n" + "=" * 80)
+        logger.info("FILTER-ONLY MODE: Stopping before Perplexity extraction")
+        logger.info("=" * 80)
+        logger.info(f"With current settings (min_ta={keyword_filter.min_ta_matches}, min_deal={keyword_filter.min_deal_matches}):")
+        logger.info(f"  {len(passed_articles)} articles would be sent to Perplexity")
+        logger.info(f"  Estimated cost: ${len(passed_articles) * 0.06:.2f}")
+        return 0
 
     if not passed_articles:
         logger.warning("⚠ No articles passed filter!")
         return 1
 
-    # STEP 5: Perplexity extraction
+    # STEP 5: OpenAI GPT-4o-mini extraction (replaces Perplexity)
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 5: Perplexity Extraction")
+    logger.info("STEP 5: OpenAI Extraction (GPT-4o-mini, Two-Pass + Parallel)")
     logger.info("=" * 80)
 
-    perplexity_extractor = PerplexityExtractor(api_key=perplexity_key, batch_size=5)
-    extractions = perplexity_extractor.extract_batch(passed_articles, ta_vocab)
+    from deal_finder.extraction.openai_extractor import OpenAIExtractor
+    openai_extractor = OpenAIExtractor(api_key=openai_key, batch_size=10)
+    extractions = openai_extractor.extract_batch(passed_articles, ta_vocab)
 
     # STEP 6: Parse results
     logger.info("\n" + "=" * 80)
@@ -402,7 +581,7 @@ def main():
             })
             continue
 
-        parsed = perplexity_extractor.parse_extracted_deal(extraction, therapeutic_area)
+        parsed = openai_extractor.parse_extracted_deal(extraction, therapeutic_area)
 
         if not parsed:
             perplexity_rejected.append({
