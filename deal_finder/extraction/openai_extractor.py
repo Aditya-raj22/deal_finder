@@ -255,7 +255,7 @@ REJECT (return null) if:
 
 """
         for i, article in enumerate(articles, 1):
-            content = article.get("content", "")[:5000]  # 5k chars
+            content = article.get("content", "")[:10000]  # 10k chars for more context
             prompt += f"\n[ARTICLE {i}]\nURL: {article['url']}\nTitle: {article.get('title', '')}\nContent: {content}\n\n"
 
         prompt += f"Return JSON array with {len(articles)} deal objects or null if rejected.\n"

@@ -494,14 +494,15 @@ def main():
         logger.info("STEP 4: Keyword Pre-Filter")
         logger.info("=" * 80)
 
+        # Relaxed filter - only require TA keywords, let LLM do heavy filtering
         keyword_filter = KeywordFilter(
             ta_keywords=ta_keywords,
             stage_keywords=stage_keywords,
             deal_keywords=deal_keywords,
-            require_deal_keyword=True,
-            min_ta_matches=2,
-            min_deal_matches=2,
-            require_money_mention=True
+            require_deal_keyword=False,  # Don't require deal keywords
+            min_ta_matches=1,  # Only need 1 TA keyword (immunology OR inflammation, etc.)
+            min_deal_matches=1,  # Not used since require_deal_keyword=False
+            require_money_mention=False  # Don't require $ amounts
         )
 
         filter_results = keyword_filter.filter_articles(articles)
