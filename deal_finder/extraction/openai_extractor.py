@@ -234,22 +234,28 @@ TARGET THERAPEUTIC AREA: {therapeutic_area}
 Include terms: {', '.join(ta_includes[:20])}
 
 For each article, extract:
-- parties (acquirer, target)
+- parties (acquirer, target) - MUST be explicitly mentioned or use null
 - deal_type (M&A, partnership, licensing, option-to-license)
-- date_announced (YYYY-MM-DD)
-- money (upfront, contingent, total in millions USD, currency)
-- asset_focus (drug/therapy name)
+- date_announced (YYYY-MM-DD) - MUST be explicitly mentioned or use null
+- money (upfront, contingent, total in millions USD, currency) - use null if not mentioned
+- asset_focus (drug/therapy name) - use "Undisclosed" if not mentioned
 - stage (preclinical, phase 1, etc.)
 - therapeutic_area_match (true/false)
-- geography (country/region)
+- geography (country/region) - use null if not mentioned
 - confidence (high/medium/low)
-- key_evidence (brief quote)
+- key_evidence (brief quote from article)
 
-REJECT if late-stage (phase 2+, approved, marketed).
+CRITICAL: Only extract information that is EXPLICITLY stated in the article.
+Use null for any field not found in the text - DO NOT infer or guess.
+
+REJECT (return null) if:
+- Late-stage (phase 2+, approved, marketed)
+- Not a business deal
+- Missing both acquirer AND target
 
 """
         for i, article in enumerate(articles, 1):
-            content = article.get("content", "")[:15000]  # 15k chars
+            content = article.get("content", "")[:5000]  # 5k chars
             prompt += f"\n[ARTICLE {i}]\nURL: {article['url']}\nTitle: {article.get('title', '')}\nContent: {content}\n\n"
 
         prompt += f"Return JSON array with {len(articles)} deal objects or null if rejected.\n"
