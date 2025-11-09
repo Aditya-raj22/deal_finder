@@ -315,6 +315,36 @@ REJECT if late-stage (phase 2+, approved, marketed).
         Returns:
             Standardized deal dict or None
         """
-        # This method exists for compatibility with existing pipeline
-        # The extraction is already in the correct format
-        return extraction
+        if not extraction:
+            return None
+
+        # Flatten nested structure for compatibility
+        flattened = {}
+
+        # Extract parties (nested)
+        parties = extraction.get("parties", {})
+        if isinstance(parties, dict):
+            flattened["target"] = parties.get("target")
+            flattened["acquirer"] = parties.get("acquirer")
+
+        # Extract money (nested)
+        money = extraction.get("money", {})
+        if isinstance(money, dict):
+            flattened["upfront_value_usd"] = money.get("upfront_value")
+            flattened["contingent_payment_usd"] = money.get("contingent_payment")
+            flattened["total_deal_value_usd"] = money.get("total_deal_value")
+            flattened["currency"] = money.get("currency", "USD")
+
+        # Copy flat fields
+        flattened["url"] = extraction.get("url")
+        flattened["deal_type"] = extraction.get("deal_type")
+        flattened["date_announced"] = extraction.get("date_announced")
+        flattened["asset_focus"] = extraction.get("asset_focus", "Undisclosed")
+        flattened["stage"] = extraction.get("stage", "unknown")
+        flattened["therapeutic_area"] = ta_name
+        flattened["geography"] = extraction.get("geography")
+        flattened["confidence"] = extraction.get("confidence", "medium")
+        flattened["key_evidence"] = extraction.get("key_evidence", "")
+        flattened["needs_review"] = False
+
+        return flattened
