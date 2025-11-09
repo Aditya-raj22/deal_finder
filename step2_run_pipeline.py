@@ -722,9 +722,9 @@ def main():
                 continue
 
             # Normalize and validate deal_type
-            deal_type = parsed.get("deal_type", "").lower()
+            deal_type_raw = parsed.get("deal_type", "").lower()
             allowed_deal_types = ["m&a", "partnership", "licensing", "option-to-license"]
-            if deal_type not in allowed_deal_types:
+            if deal_type_raw not in allowed_deal_types:
                 keyword_matches = article.get("keyword_matches", {})
                 perplexity_rejected.append({
                     "url": url,
@@ -736,6 +736,9 @@ def main():
                 })
                 logger.warning(f"Skipping deal with invalid deal_type: {parsed.get('deal_type')} - {url}")
                 continue
+
+            # Map to enum values (M&A needs uppercase)
+            deal_type = "M&A" if deal_type_raw == "m&a" else deal_type_raw
 
             # Create evidence object if key_evidence exists
             key_evidence = parsed.get("key_evidence", "")
