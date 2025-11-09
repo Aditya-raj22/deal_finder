@@ -690,9 +690,9 @@ def main():
                 })
                 continue
 
-            # Validate parsed has all required fields
+            # Validate parsed has all required fields (not None or empty)
             required_fields = ["target", "acquirer", "date_announced"]
-            missing_fields = [f for f in required_fields if f not in parsed]
+            missing_fields = [f for f in required_fields if not parsed.get(f)]
             if missing_fields:
                 keyword_matches = article.get("keyword_matches", {})
                 perplexity_rejected.append({
@@ -707,7 +707,7 @@ def main():
                 continue
 
             # Validate stage is early-stage (preclinical, phase 1, first-in-human)
-            stage = parsed.get("stage", "").lower()
+            stage = (parsed.get("stage") or "").lower()
             allowed_stages = ["preclinical", "phase 1", "first-in-human", "unknown"]
             if stage not in allowed_stages:
                 keyword_matches = article.get("keyword_matches", {})
@@ -723,7 +723,7 @@ def main():
                 continue
 
             # Normalize and validate deal_type
-            deal_type_raw = parsed.get("deal_type", "").lower()
+            deal_type_raw = (parsed.get("deal_type") or "").lower()
             allowed_deal_types = ["m&a", "partnership", "licensing", "option-to-license"]
             if deal_type_raw not in allowed_deal_types:
                 keyword_matches = article.get("keyword_matches", {})
@@ -768,9 +768,9 @@ def main():
                 geography=parsed.get("geography"),
                 detected_currency=parsed.get("currency"),
                 fx_rate=Decimal("1.0") if parsed.get("currency") == "USD" else None,
-                fx_source="Perplexity",
+                fx_source="OpenAI",
                 evidence=evidence_obj,
-                inclusion_reason=f"Keyword + Perplexity (conf: {parsed.get('confidence', 'unknown')})",
+                inclusion_reason=f"Keyword + OpenAI extraction (conf: {parsed.get('confidence', 'unknown')})",
                 timestamp_utc=datetime.now(timezone.utc).isoformat()
             )
 
