@@ -571,12 +571,13 @@ def main():
         url = article["url"]
 
         if not extraction:
+            keyword_matches = article.get("keyword_matches", {})
             perplexity_rejected.append({
                 "url": url,
                 "title": article.get("title", ""),
-                "ta_keywords": ", ".join(article["keyword_matches"]["ta"][:10]),  # First 10
-                "stage_keywords": ", ".join(article["keyword_matches"]["stage"]),
-                "deal_keywords": ", ".join(article["keyword_matches"]["deal"]),
+                "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),  # First 10
+                "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
                 "perplexity_reason": "No deal found or did not match criteria"
             })
             continue
@@ -584,12 +585,13 @@ def main():
         parsed = openai_extractor.parse_extracted_deal(extraction, therapeutic_area)
 
         if not parsed:
+            keyword_matches = article.get("keyword_matches", {})
             perplexity_rejected.append({
                 "url": url,
                 "title": article.get("title", ""),
-                "ta_keywords": ", ".join(article["keyword_matches"]["ta"][:10]),
-                "stage_keywords": ", ".join(article["keyword_matches"]["stage"]),
-                "deal_keywords": ", ".join(article["keyword_matches"]["deal"]),
+                "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
+                "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
                 "perplexity_reason": "Parsing failed or filtered out"
             })
             continue
