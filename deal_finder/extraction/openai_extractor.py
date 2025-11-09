@@ -40,12 +40,13 @@ class DealExtraction(BaseModel):
 class OpenAIExtractor:
     """Extract deals using GPT-4o-mini with two-pass filtering and parallel processing."""
 
-    def __init__(self, api_key: Optional[str] = None, batch_size: int = 10):
+    def __init__(self, api_key: Optional[str] = None, batch_size: int = 10, quick_filter_batch: int = 20):
         """Initialize OpenAI extractor.
 
         Args:
             api_key: OpenAI API key
-            batch_size: Number of articles to process per batch (10-20 recommended)
+            batch_size: Number of articles for full extraction per batch (10 recommended)
+            quick_filter_batch: Number of articles for quick filter per batch (20 recommended)
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -53,6 +54,7 @@ class OpenAIExtractor:
 
         self.client = openai.OpenAI(api_key=self.api_key)
         self.batch_size = batch_size
+        self.quick_filter_batch = quick_filter_batch
 
     def extract_batch(
         self,
@@ -109,37 +111,36 @@ class OpenAIExtractor:
         """
         passed = []
 
-        # Process in batches
-        for i in range(0, len(articles), self.batch_size * 2):  # Larger batches for filtering
-            batch = articles[i:i + self.batch_size * 2]
+        # Process in batches using GPT-3.5-turbo (cheap and fast)
+        for i in range(0, len(articles), self.quick_filter_batch):
+            batch = articles[i:i + self.quick_filter_batch]
 
-            prompt = f"""Filter articles for EARLY-STAGE {therapeutic_area} deals.
+            prompt = f"""Quick filter: Does each article describe an EARLY-STAGE {therapeutic_area} DEAL?
 
-PASS if:
-- Business deal (M&A, partnership, licensing)
-- {therapeutic_area} related
-- EARLY stage (preclinical, phase 1, discovery)
-- Mentions money OR specific asset
+PASS if mentions:
+- Deal keywords (acquisition, partnership, licensing, agreement)
+- {therapeutic_area} or related terms
+- Early development (preclinical, phase 1, discovery, R&D)
 
 REJECT if:
-- Late stage (phase 2+, approved, marketed)
-- Wrong therapeutic area
-- Not a deal
-- Opinion/interview
+- Not a business deal
+- Late stage (phase 2+, commercial, approved)
+- Different therapeutic area
+- Just news/opinion
 
-For each article, return: {{"passes": true/false}}
+For each article below, return {{"passes": true}} or {{"passes": false}}
 
 """
             for j, article in enumerate(batch, 1):
                 title = article.get("title", "")
-                snippet = article.get("content", "")[:500]
+                snippet = article.get("content", "")[:500]  # Title + 500 chars
                 prompt += f"\n[{j}] Title: {title}\nSnippet: {snippet}\n"
 
-            prompt += f"\nReturn JSON array with {len(batch)} booleans: [{{'passes': true/false}}, ...]\n"
+            prompt += f"\nReturn JSON array with {len(batch)} objects: [{{'passes': true/false}}, ...]\n"
 
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model="gpt-3.5-turbo",  # Cheap model for quick filtering
                     messages=[
                         {"role": "system", "content": "You are a biotech deal filter. Return only JSON."},
                         {"role": "user", "content": prompt}
