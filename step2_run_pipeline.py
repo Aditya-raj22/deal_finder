@@ -721,6 +721,22 @@ def main():
                 logger.warning(f"Skipping late-stage deal (stage: {stage}) - {url}")
                 continue
 
+            # Normalize and validate deal_type
+            deal_type = parsed.get("deal_type", "").lower()
+            allowed_deal_types = ["m&a", "partnership", "licensing", "option-to-license"]
+            if deal_type not in allowed_deal_types:
+                keyword_matches = article.get("keyword_matches", {})
+                perplexity_rejected.append({
+                    "url": url,
+                    "title": article.get("title", ""),
+                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
+                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
+                    "perplexity_reason": f"Invalid deal type: {parsed.get('deal_type')}"
+                })
+                logger.warning(f"Skipping deal with invalid deal_type: {parsed.get('deal_type')} - {url}")
+                continue
+
             # Create evidence object if key_evidence exists
             key_evidence = parsed.get("key_evidence", "")
             evidence_obj = None
@@ -735,10 +751,10 @@ def main():
                 date_announced=parsed["date_announced"],
                 target=company_canonicalizer.canonicalize(parsed["target"]),
                 acquirer=company_canonicalizer.canonicalize(parsed["acquirer"]),
-                stage=parsed.get("stage"),
+                stage=stage,  # Use normalized stage
                 therapeutic_area=parsed.get("therapeutic_area"),
                 asset_focus=parsed.get("asset_focus"),
-                deal_type_detailed=parsed.get("deal_type"),
+                deal_type_detailed=deal_type,  # Use normalized deal_type
                 source_url=parsed.get("url", url),
                 needs_review=parsed.get("needs_review", False),
                 upfront_value_usd=parsed.get("upfront_value_usd"),
