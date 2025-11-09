@@ -664,21 +664,25 @@ def main():
             article = passed_articles[i]
             url = article["url"]
 
+            # Skip if no extraction
             if not extraction:
                 keyword_matches = article.get("keyword_matches", {})
                 perplexity_rejected.append({
                     "url": url,
                     "title": article.get("title", ""),
-                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),  # First 10
+                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
                     "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
                     "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
-                    "perplexity_reason": "No deal found or did not match criteria"
+                    "perplexity_reason": "No deal found"
                 })
                 continue
 
             parsed = openai_extractor.parse_extracted_deal(extraction, therapeutic_area)
-
             if not parsed:
+                continue
+
+            # Skip if missing critical fields
+            if not parsed.get("target") or not parsed.get("acquirer"):
                 keyword_matches = article.get("keyword_matches", {})
                 perplexity_rejected.append({
                     "url": url,
@@ -686,95 +690,51 @@ def main():
                     "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
                     "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
                     "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
-                    "perplexity_reason": "Parsing failed or filtered out"
+                    "perplexity_reason": "Missing target or acquirer"
                 })
                 continue
 
-            # Validate parsed has all required fields (not None or empty)
-            required_fields = ["target", "acquirer", "date_announced"]
-            missing_fields = [f for f in required_fields if not parsed.get(f)]
-            if missing_fields:
-                keyword_matches = article.get("keyword_matches", {})
-                perplexity_rejected.append({
-                    "url": url,
-                    "title": article.get("title", ""),
-                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
-                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
-                    "perplexity_reason": f"Missing required fields: {', '.join(missing_fields)}"
-                })
-                logger.warning(f"Skipping deal - missing fields: {missing_fields} - {url}")
-                continue
-
-            # Validate stage is early-stage (preclinical, phase 1, first-in-human)
-            stage = (parsed.get("stage") or "").lower()
-            allowed_stages = ["preclinical", "phase 1", "first-in-human", "unknown"]
-            if stage not in allowed_stages:
-                keyword_matches = article.get("keyword_matches", {})
-                perplexity_rejected.append({
-                    "url": url,
-                    "title": article.get("title", ""),
-                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
-                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
-                    "perplexity_reason": f"Late-stage deal rejected (stage: {stage})"
-                })
-                logger.warning(f"Skipping late-stage deal (stage: {stage}) - {url}")
-                continue
-
-            # Normalize and validate deal_type
-            deal_type_raw = (parsed.get("deal_type") or "").lower()
-            allowed_deal_types = ["m&a", "partnership", "licensing", "option-to-license"]
-            if deal_type_raw not in allowed_deal_types:
-                keyword_matches = article.get("keyword_matches", {})
-                perplexity_rejected.append({
-                    "url": url,
-                    "title": article.get("title", ""),
-                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
-                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
-                    "perplexity_reason": f"Invalid deal type: {parsed.get('deal_type')}"
-                })
-                logger.warning(f"Skipping deal with invalid deal_type: {parsed.get('deal_type')} - {url}")
-                continue
-
-            # Map to enum values (M&A needs uppercase)
+            # Normalize stage and deal_type for enum compatibility
+            stage = (parsed.get("stage") or "unknown").lower()
+            deal_type_raw = (parsed.get("deal_type") or "partnership").lower()
             deal_type = "M&A" if deal_type_raw == "m&a" else deal_type_raw
 
-            # Create evidence object if key_evidence exists
-            key_evidence = parsed.get("key_evidence", "")
-            evidence_obj = None
-            if key_evidence:
-                evidence_obj = FieldEvidence(
-                    date_announced=Evidence(snippet_en=key_evidence, raw_phrase=key_evidence),
-                    target=Evidence(snippet_en=key_evidence, raw_phrase=key_evidence),
-                    acquirer=Evidence(snippet_en=key_evidence, raw_phrase=key_evidence)
+            # Create Deal object - let Pydantic handle validation
+            try:
+                deal = Deal(
+                    date_announced=parsed.get("date_announced"),
+                    target=company_canonicalizer.canonicalize(parsed["target"]),
+                    acquirer=company_canonicalizer.canonicalize(parsed["acquirer"]),
+                    stage=stage,
+                    therapeutic_area=parsed.get("therapeutic_area") or therapeutic_area,
+                    asset_focus=parsed.get("asset_focus") or "Undisclosed",
+                    deal_type_detailed=deal_type,
+                    source_url=parsed.get("url", url),
+                    needs_review=True,  # Flag all for manual review
+                    upfront_value_usd=parsed.get("upfront_value_usd"),
+                    contingent_payment_usd=parsed.get("contingent_payment_usd"),
+                    total_deal_value_usd=parsed.get("total_deal_value_usd"),
+                    upfront_pct_total=parsed.get("upfront_pct_total"),
+                    geography=parsed.get("geography"),
+                    detected_currency=parsed.get("currency") or "USD",
+                    fx_rate=Decimal("1.0") if parsed.get("currency") == "USD" else None,
+                    fx_source="OpenAI",
+                    inclusion_reason=f"OpenAI extraction (conf: {parsed.get('confidence', 'unknown')})",
+                    timestamp_utc=datetime.now(timezone.utc).isoformat()
                 )
-
-            deal = Deal(
-                date_announced=parsed["date_announced"],
-                target=company_canonicalizer.canonicalize(parsed["target"]),
-                acquirer=company_canonicalizer.canonicalize(parsed["acquirer"]),
-                stage=stage,  # Use normalized stage
-                therapeutic_area=parsed.get("therapeutic_area"),
-                asset_focus=parsed.get("asset_focus"),
-                deal_type_detailed=deal_type,  # Use normalized deal_type
-                source_url=parsed.get("url", url),
-                needs_review=parsed.get("needs_review", False),
-                upfront_value_usd=parsed.get("upfront_value_usd"),
-                contingent_payment_usd=parsed.get("contingent_payment_usd"),
-                total_deal_value_usd=parsed.get("total_deal_value_usd"),
-                upfront_pct_total=parsed.get("upfront_pct_total"),
-                geography=parsed.get("geography"),
-                detected_currency=parsed.get("currency"),
-                fx_rate=Decimal("1.0") if parsed.get("currency") == "USD" else None,
-                fx_source="OpenAI",
-                evidence=evidence_obj,
-                inclusion_reason=f"Keyword + OpenAI extraction (conf: {parsed.get('confidence', 'unknown')})",
-                timestamp_utc=datetime.now(timezone.utc).isoformat()
-            )
-
-            extracted_deals.append(deal)
+                extracted_deals.append(deal)
+            except Exception as e:
+                logger.warning(f"Failed to create Deal object for {url}: {e}")
+                keyword_matches = article.get("keyword_matches", {})
+                perplexity_rejected.append({
+                    "url": url,
+                    "title": article.get("title", ""),
+                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
+                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
+                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
+                    "perplexity_reason": f"Validation error: {str(e)}"
+                })
+                continue
 
         # Save parsing checkpoint
         parsing_checkpoint_file = Path("output/parsing_checkpoint.json")
