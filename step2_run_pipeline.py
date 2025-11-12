@@ -1,8 +1,15 @@
 """
-Run the deal discovery pipeline with LLM-based filtering and extraction.
+Run the deal discovery pipeline with two-pass LLM extraction.
 
-This script crawls news sites, filters articles using GPT-3.5-turbo,
-and extracts deal information using GPT-4o-mini.
+This script:
+1. Crawls news sites for article URLs
+2. Fetches article content
+3. Extracts deals using two-pass OpenAI system:
+   - Pass 1: Quick filter with gpt-4.1-nano (1000 chars)
+   - Deduplication: Embeddings-based semantic dedup
+   - Pass 2: Full extraction with gpt-4.1 (10k chars)
+4. Parses and deduplicates extracted deals
+5. Outputs Excel files with deals and rejected articles
 
 Usage:
     python step2_run_pipeline.py --config config/config.yaml
@@ -29,14 +36,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from deal_finder.config_loader import load_config, load_ta_vocab, load_aliases
 from deal_finder.discovery.exhaustive_crawler import ExhaustiveSiteCrawler
-from deal_finder.discovery.url_index import URLIndex
 from deal_finder.utils.selenium_client import SeleniumWebClient
 from deal_finder.normalization import CompanyCanonicalizer
 from deal_finder.models import Deal, FieldEvidence, Evidence
 from deal_finder.output import ExcelWriter
 from bs4 import BeautifulSoup
 from decimal import Decimal
-from difflib import SequenceMatcher
 
 # Set up logging
 logging.basicConfig(
@@ -440,7 +445,8 @@ def main():
             checkpoint_data = json.load(f)
             # Load extracted deals
             extracted_deals_data = checkpoint_data.get("extracted_deals", [])
-            perplexity_rejected = checkpoint_data.get("perplexity_rejected", [])
+            # Support both old and new checkpoint formats
+            extraction_rejected = checkpoint_data.get("extraction_rejected") or checkpoint_data.get("perplexity_rejected", [])
 
             # Reconstruct Deal objects
             extracted_deals = []
@@ -474,14 +480,14 @@ def main():
                 )
                 extracted_deals.append(deal)
 
-        logger.info(f"✓ Loaded {len(extracted_deals)} deals and {len(perplexity_rejected)} rejected from checkpoint")
+        logger.info(f"✓ Loaded {len(extracted_deals)} deals and {len(extraction_rejected)} rejected from checkpoint")
     else:
         logger.info("STEP 4: Parse Results")
         logger.info("=" * 80)
 
         company_canonicalizer = CompanyCanonicalizer(aliases)
         extracted_deals = []
-        perplexity_rejected = []
+        extraction_rejected = []
 
         for i, extraction in enumerate(extractions):
             article = articles[i]
@@ -489,10 +495,10 @@ def main():
 
             # Skip if no extraction
             if not extraction:
-                perplexity_rejected.append({
+                extraction_rejected.append({
                     "url": url,
                     "title": article.get("title", ""),
-                    "perplexity_reason": "No deal found"
+                    "rejection_reason": "No deal found"
                 })
                 continue
 
@@ -502,10 +508,10 @@ def main():
 
             # Skip if missing critical fields
             if not parsed.get("target") or not parsed.get("acquirer"):
-                perplexity_rejected.append({
+                extraction_rejected.append({
                     "url": url,
                     "title": article.get("title", ""),
-                    "perplexity_reason": "Missing target or acquirer"
+                    "rejection_reason": "Missing target or acquirer"
                 })
                 continue
 
@@ -547,10 +553,10 @@ def main():
                 extracted_deals.append(deal)
             except Exception as e:
                 logger.warning(f"Failed to create Deal object for {url}: {e}")
-                perplexity_rejected.append({
+                extraction_rejected.append({
                     "url": url,
                     "title": article.get("title", ""),
-                    "perplexity_reason": f"Validation error: {str(e)}"
+                    "rejection_reason": f"Validation error: {str(e)}"
                 })
                 continue
 
@@ -593,7 +599,7 @@ def main():
         with gzip.open(parsing_checkpoint_file, 'wt', encoding='utf-8') as f:
             json.dump({
                 "extracted_deals": extracted_deals_data,
-                "perplexity_rejected": perplexity_rejected,
+                "extraction_rejected": extraction_rejected,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }, f)
         logger.info(f"✓ Saved parsing checkpoint: {len(extracted_deals)} deals")
@@ -625,11 +631,11 @@ def main():
         logger.info(f"✓ Saved {len(extracted_deals)} deals to: {deals_file}")
 
     # Output 2: Rejected
-    if perplexity_rejected:
+    if extraction_rejected:
         import pandas as pd
         rejected_file = output_dir / f"hybrid_rejected_{timestamp}_{run_id}.xlsx"
-        pd.DataFrame(perplexity_rejected).to_excel(rejected_file, index=False)
-        logger.info(f"✓ Saved {len(perplexity_rejected)} rejected to: {rejected_file}")
+        pd.DataFrame(extraction_rejected).to_excel(rejected_file, index=False)
+        logger.info(f"✓ Saved {len(extraction_rejected)} rejected to: {rejected_file}")
 
     # Summary
     logger.info("\n" + "=" * 80)
@@ -639,7 +645,7 @@ def main():
     logger.info(f"  • URLs crawled: {len(discovered_urls)}")
     logger.info(f"  • Articles fetched: {len(articles)}")
     logger.info(f"  • Deals extracted: {len(extracted_deals)}")
-    logger.info(f"  • Rejected: {len(perplexity_rejected)}")
+    logger.info(f"  • Rejected: {len(extraction_rejected)}")
 
     return 0
 
