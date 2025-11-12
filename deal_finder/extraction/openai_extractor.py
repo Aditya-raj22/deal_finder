@@ -10,6 +10,100 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Cache for sentence transformer model (loaded once, reused)
+_SENTENCE_TRANSFORMER_MODEL = None
+
+
+def deduplicate_by_title(articles: list) -> list:
+    """
+    Remove duplicate articles using embeddings-based semantic similarity.
+
+    Strategy (Optimized):
+    1. Generate embeddings for article titles + first 200 chars of content
+    2. Use k-NN to find only similar articles (not full O(n²) matrix)
+    3. Group similar articles (>0.85 similarity)
+    4. Keep longest version from each group
+
+    Args:
+        articles: List of article dicts with "title" and "content" keys
+
+    Returns:
+        Deduplicated list
+    """
+    global _SENTENCE_TRANSFORMER_MODEL
+    from sklearn.neighbors import NearestNeighbors
+
+    if not articles:
+        return articles
+
+    # Load model once and cache it (8-40 sec savings on subsequent calls)
+    if _SENTENCE_TRANSFORMER_MODEL is None:
+        logger.info("Loading sentence transformer model (cached for future use)...")
+        from sentence_transformers import SentenceTransformer
+        _SENTENCE_TRANSFORMER_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+    else:
+        logger.info("Using cached sentence transformer model...")
+
+    model = _SENTENCE_TRANSFORMER_MODEL
+
+    # Create text to embed: title + first 200 chars of content
+    texts = []
+    for article in articles:
+        title = article.get("title", "")
+        content = article.get("content", "")[:200]
+        text = f"{title} {content}"
+        texts.append(text)
+
+    logger.info(f"Generating embeddings for {len(texts)} articles...")
+    embeddings = model.encode(texts, show_progress_bar=True, batch_size=256)
+
+    # Use k-NN instead of full similarity matrix (10GB → 100MB memory savings!)
+    logger.info("Finding similar articles using k-NN (memory-efficient)...")
+    n_neighbors = min(20, len(articles))  # Find top 20 neighbors max
+    nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine', algorithm='auto')
+    nbrs.fit(embeddings)
+
+    # For each article, find its nearest neighbors
+    distances, indices = nbrs.kneighbors(embeddings)
+
+    # Find duplicates (similarity > 0.85)
+    SIMILARITY_THRESHOLD = 0.85
+    seen = set()
+    duplicates_removed = 0
+    final_articles = []
+
+    for i in range(len(articles)):
+        if i in seen:
+            continue
+
+        # Convert cosine distance to similarity (1 - distance)
+        similarities = 1 - distances[i]
+        similar_indices = [indices[i][j] for j in range(len(similarities))
+                          if similarities[j] > SIMILARITY_THRESHOLD and indices[i][j] != i]
+
+        if similar_indices:
+            # Found duplicates - keep the longest one
+            group = [i] + similar_indices
+            longest_idx = max(group, key=lambda idx: len(articles[idx].get("content", "")))
+
+            # Mark others as seen
+            for idx in group:
+                if idx != longest_idx:
+                    seen.add(idx)
+                    duplicates_removed += 1
+
+            # Add longest version if not already added
+            if longest_idx not in seen:
+                final_articles.append(articles[longest_idx])
+                seen.add(longest_idx)
+        else:
+            # No duplicates found
+            final_articles.append(articles[i])
+            seen.add(i)
+
+    logger.info(f"Embeddings deduplication: {len(articles)} → {len(final_articles)} ({duplicates_removed} removed)")
+    return final_articles
+
 
 # Pydantic models for structured outputs
 class DealParties(BaseModel):
@@ -96,10 +190,11 @@ class OpenAIExtractor:
         articles: List[dict],
         ta_vocab: dict
     ) -> List[Optional[dict]]:
-        """Extract deals with two-pass filtering and parallel processing.
+        """Extract deals with two-pass filtering, deduplication, and parallel processing.
 
-        Pass 1: Quick filter (title + 500 chars)
-        Pass 2: Full extraction on survivors
+        Pass 1: Quick filter (nano - title + 1000 chars)
+        Deduplication: Embeddings-based semantic dedup (>0.85 similarity)
+        Pass 2: Full extraction (gpt-4.1 - 10k chars)
 
         Args:
             articles: List of dicts with keys: url, title, content
@@ -147,9 +242,36 @@ class OpenAIExtractor:
         if not passed_articles:
             return [None] * len(articles)
 
+        # DEDUPLICATION: Check for existing dedup checkpoint
+        dedup_checkpoint = Path("output/dedup_checkpoint.json")
+
+        if dedup_checkpoint.exists():
+            logger.info("Found existing deduplication checkpoint, loading...")
+            with open(dedup_checkpoint) as f:
+                checkpoint_data = json.load(f)
+                deduped_articles = checkpoint_data.get("deduped_articles", [])
+                logger.info(f"✓ Loaded {len(deduped_articles)} articles from dedup checkpoint")
+                logger.info(f"  Skipping deduplication, proceeding directly to Pass 2")
+        else:
+            # Deduplicate passed articles (embeddings-based)
+            logger.info(f"Deduplicating {len(passed_articles)} articles using embeddings...")
+            deduped_articles = deduplicate_by_title(passed_articles)
+            logger.info(f"Deduplication results: {len(passed_articles)} → {len(deduped_articles)} articles")
+
+            # Save dedup checkpoint
+            dedup_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            with open(dedup_checkpoint, 'w') as f:
+                json.dump({
+                    "deduped_articles": deduped_articles,
+                    "pre_dedup_count": len(passed_articles),
+                    "post_dedup_count": len(deduped_articles),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }, f, indent=2)
+            logger.info(f"✓ Saved deduplication checkpoint: {len(deduped_articles)} articles")
+
         # PASS 2: Full extraction (parallel)
-        logger.info(f"Pass 2: Full extraction on {len(passed_articles)} articles (parallel)...")
-        extractions = self._parallel_extract(passed_articles, ta_vocab)
+        logger.info(f"Pass 2: Full extraction on {len(deduped_articles)} articles (parallel)...")
+        extractions = self._parallel_extract(deduped_articles, ta_vocab)
 
         # Map results back to original articles
         extraction_map = {e["url"]: e for e in extractions if e and isinstance(e, dict) and "url" in e}

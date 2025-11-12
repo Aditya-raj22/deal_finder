@@ -45,102 +45,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Cache for sentence transformer model (loaded once, reused)
-_SENTENCE_TRANSFORMER_MODEL = None
-
-
-def deduplicate_by_title(articles: list) -> list:
-    """
-    Remove duplicate articles using embeddings-based semantic similarity.
-
-    Strategy (Optimized):
-    1. Generate embeddings for article titles + first 200 chars of content
-    2. Use k-NN to find only similar articles (not full O(n²) matrix)
-    3. Group similar articles (>0.85 similarity)
-    4. Keep longest version from each group
-
-    Args:
-        articles: List of article dicts with "title" and "content" keys
-
-    Returns:
-        Deduplicated list
-    """
-    global _SENTENCE_TRANSFORMER_MODEL
-    from sklearn.neighbors import NearestNeighbors
-
-    if not articles:
-        return articles
-
-    # Load model once and cache it (8-40 sec savings on subsequent calls)
-    if _SENTENCE_TRANSFORMER_MODEL is None:
-        logger.info("Loading sentence transformer model (cached for future use)...")
-        from sentence_transformers import SentenceTransformer
-        _SENTENCE_TRANSFORMER_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
-    else:
-        logger.info("Using cached sentence transformer model...")
-
-    model = _SENTENCE_TRANSFORMER_MODEL
-
-    # Create text to embed: title + first 200 chars of content
-    texts = []
-    for article in articles:
-        title = article.get("title", "")
-        content = article.get("content", "")[:200]
-        text = f"{title} {content}"
-        texts.append(text)
-
-    logger.info(f"Generating embeddings for {len(texts)} articles...")
-    embeddings = model.encode(texts, show_progress_bar=True, batch_size=256)
-
-    # Use k-NN instead of full similarity matrix (10GB → 100MB memory savings!)
-    logger.info("Finding similar articles using k-NN (memory-efficient)...")
-    n_neighbors = min(20, len(articles))  # Find top 20 neighbors max
-    nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine', algorithm='auto')
-    nbrs.fit(embeddings)
-
-    # For each article, find its nearest neighbors
-    distances, indices = nbrs.kneighbors(embeddings)
-
-    # Find duplicates (similarity > 0.85)
-    SIMILARITY_THRESHOLD = 0.85
-    seen = set()
-    duplicates_removed = 0
-    final_articles = []
-
-    for i in range(len(articles)):
-        if i in seen:
-            continue
-
-        # Convert cosine distance to similarity (1 - distance)
-        similarities = 1 - distances[i]
-        similar_indices = [indices[i][j] for j in range(len(similarities))
-                          if similarities[j] > SIMILARITY_THRESHOLD and indices[i][j] != i]
-
-        if similar_indices:
-            # Found duplicates - keep the longest one
-            group = [i] + similar_indices
-            longest_idx = max(group, key=lambda idx: len(articles[idx].get("content", "")))
-
-            # Mark others as seen
-            for idx in group:
-                if idx != longest_idx:
-                    seen.add(idx)
-                    duplicates_removed += 1
-                    logger.debug(f"Duplicate: '{articles[idx].get('title', '')[:50]}...' (similarity: {similarity_matrix[i][idx]:.2f})")
-
-            # Add longest version if not already added
-            if longest_idx not in seen:
-                final_articles.append(articles[longest_idx])
-                seen.add(longest_idx)
-        else:
-            # No duplicates found
-            final_articles.append(articles[i])
-            seen.add(i)
-
-    logger.info(f"Embeddings deduplication: {len(articles)} → {len(final_articles)} ({duplicates_removed} removed)")
-    return final_articles
-
-
 def deduplicate_deals(deals: list) -> list:
     """
     Remove duplicate deals based on (acquirer + target + date).
@@ -208,21 +112,6 @@ def main():
         "--skip-fetch",
         action="store_true",
         help="Skip fetching and use only checkpoint articles"
-    )
-    parser.add_argument(
-        "--filter-only",
-        action="store_true",
-        help="Stop after keyword filtering (don't run Perplexity extraction)"
-    )
-    parser.add_argument(
-        "--skip-filter",
-        action="store_true",
-        help="Skip LLM filtering and use LLM checkpoint"
-    )
-    parser.add_argument(
-        "--skip-dedup",
-        action="store_true",
-        help="Skip LLM filter + deduplication, load from dedup checkpoint"
     )
     parser.add_argument(
         "--skip-extraction",
@@ -496,112 +385,7 @@ def main():
         logger.info(f"✓ Fetched {len(articles)} articles total ({total_failures[0]} failures)")
         logger.info(f"✓ Checkpoint preserved at: {checkpoint_file}")
 
-    # STEP 3 & 4: LLM Pre-filter + Deduplication
-    logger.info("\n" + "=" * 80)
-
-    if args.skip_dedup:
-        # Skip both LLM filter and deduplication - load final checkpoint
-        logger.info("STEP 3-4: Loading from deduplication checkpoint (--skip-dedup)")
-        logger.info("=" * 80)
-
-        filter_checkpoint_file = Path("output/filter_checkpoint.json.gz")
-        if not filter_checkpoint_file.exists():
-            logger.error("❌ Deduplication checkpoint not found! Run without --skip-dedup first.")
-            return 1
-
-        with gzip.open(filter_checkpoint_file, 'rt', encoding='utf-8') as f:
-            checkpoint_data = json.load(f)
-            passed_articles = checkpoint_data.get("articles", [])
-
-        logger.info(f"✓ Loaded {len(passed_articles)} articles from deduplication checkpoint")
-        logger.info(f"  Estimated extraction cost: ${len(passed_articles) * 0.06:.2f}")
-
-    elif args.skip_filter:
-        # Skip LLM filter but do deduplication
-        logger.info("STEP 3: Loading from LLM filter checkpoint (--skip-filter)")
-        logger.info("=" * 80)
-
-        llm_checkpoint_file = Path("output/llm_checkpoint.json.gz")
-        if not llm_checkpoint_file.exists():
-            logger.error("❌ LLM filter checkpoint not found! Run without --skip-filter first.")
-            return 1
-
-        with gzip.open(llm_checkpoint_file, 'rt', encoding='utf-8') as f:
-            checkpoint_data = json.load(f)
-            llm_passed = checkpoint_data.get("articles", [])
-
-        logger.info(f"✓ Loaded {len(llm_passed)} articles from LLM filter checkpoint")
-
-        # STEP 4: Deduplicate
-        logger.info("\n" + "=" * 80)
-        logger.info("STEP 4: Deduplicate Filtered Articles (Embeddings)")
-        logger.info("=" * 80)
-
-        passed_articles = deduplicate_by_title(llm_passed)
-        logger.info(f"  After deduplication: {len(llm_passed)} → {len(passed_articles)} articles")
-        logger.info(f"  Estimated extraction cost: ${len(passed_articles) * 0.06:.2f}")
-
-        # Save dedup checkpoint (compressed)
-        filter_checkpoint_file = Path("output/filter_checkpoint.json.gz")
-        filter_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        with gzip.open(filter_checkpoint_file, 'wt', encoding='utf-8') as f:
-            json.dump({"articles": passed_articles}, f)
-        logger.info(f"✓ Saved deduplication checkpoint: {len(passed_articles)} articles")
-
-    else:
-        # Run full LLM filter + deduplication
-        logger.info("STEP 3: LLM Pre-Filter (Conservative - GPT-3.5-turbo)")
-        logger.info("=" * 80)
-        logger.info(f"Processing {len(articles)} articles with LLM pre-filter...")
-
-        from deal_finder.llm_prefilter import LLMPreFilter
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if openai_key:
-            llm_filter = LLMPreFilter(api_key=openai_key, batch_size=20)
-            llm_results = llm_filter.filter_articles(articles, therapeutic_area)
-            llm_passed = llm_results["passed"]
-            logger.info(f"  LLM filter: {len(articles)} → {len(llm_passed)} articles")
-            logger.info(f"  LLM filter cost: ${llm_results['cost']:.2f}")
-        else:
-            logger.warning("⚠ OPENAI_API_KEY not set, skipping LLM pre-filter")
-            llm_passed = articles
-
-        # Save LLM checkpoint (compressed)
-        llm_checkpoint_file = Path("output/llm_checkpoint.json.gz")
-        llm_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        with gzip.open(llm_checkpoint_file, 'wt', encoding='utf-8') as f:
-            json.dump({"articles": llm_passed}, f)
-        logger.info(f"✓ Saved LLM filter checkpoint: {len(llm_passed)} articles")
-
-        # STEP 4: Deduplicate LLM-filtered articles
-        logger.info("\n" + "=" * 80)
-        logger.info("STEP 4: Deduplicate Filtered Articles (Embeddings)")
-        logger.info("=" * 80)
-
-        passed_articles = deduplicate_by_title(llm_passed)
-        logger.info(f"  After deduplication: {len(llm_passed)} → {len(passed_articles)} articles")
-        logger.info(f"  Estimated extraction cost: ${len(passed_articles) * 0.06:.2f}")
-
-        # Save dedup checkpoint (compressed)
-        filter_checkpoint_file = Path("output/filter_checkpoint.json.gz")
-        filter_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        with gzip.open(filter_checkpoint_file, 'wt', encoding='utf-8') as f:
-            json.dump({"articles": passed_articles}, f)
-        logger.info(f"✓ Saved deduplication checkpoint: {len(passed_articles)} articles")
-
-    if args.filter_only:
-        logger.info("\n" + "=" * 80)
-        logger.info("FILTER-ONLY MODE: Stopping before OpenAI extraction")
-        logger.info("=" * 80)
-        logger.info(f"  {len(passed_articles)} articles passed LLM pre-filter")
-        logger.info(f"  Estimated OpenAI extraction cost: ${len(passed_articles) * 0.06:.2f}")
-        return 0
-
-    if not passed_articles:
-        logger.warning("⚠ No articles passed filter!")
-        return 1
-
-    # STEP 5: OpenAI GPT-4o-mini extraction (replaces Perplexity)
+    # STEP 3: OpenAI Extraction with Two-Pass Filtering + Deduplication
     logger.info("\n" + "=" * 80)
 
     # Initialize extractor (needed for parsing even if we skip extraction)
@@ -609,7 +393,7 @@ def main():
     openai_extractor = OpenAIExtractor(api_key=openai_key, batch_size=10)
 
     if args.skip_extraction:
-        logger.info("STEP 5: Loading from extraction checkpoint (--skip-extraction)")
+        logger.info("STEP 3: Loading from extraction checkpoint (--skip-extraction)")
         logger.info("=" * 80)
 
         extraction_checkpoint_file = Path("output/extraction_checkpoint.json.gz")
@@ -620,14 +404,14 @@ def main():
         with gzip.open(extraction_checkpoint_file, 'rt', encoding='utf-8') as f:
             checkpoint_data = json.load(f)
             extractions = checkpoint_data.get("extractions", [])
-            passed_articles = checkpoint_data.get("articles", [])
+            articles = checkpoint_data.get("articles", [])
 
         logger.info(f"✓ Loaded {len(extractions)} extractions from checkpoint")
     else:
-        logger.info("STEP 5: OpenAI Extraction (GPT-4o-mini, Two-Pass + Parallel)")
+        logger.info("STEP 3: OpenAI Extraction (Two-Pass: nano → dedup → gpt-4.1)")
         logger.info("=" * 80)
 
-        extractions = openai_extractor.extract_batch(passed_articles, ta_vocab)
+        extractions = openai_extractor.extract_batch(articles, ta_vocab)
 
         # Save extraction checkpoint
         extraction_checkpoint_file = Path("output/extraction_checkpoint.json.gz")
@@ -635,16 +419,16 @@ def main():
         with gzip.open(extraction_checkpoint_file, 'wt', encoding='utf-8') as f:
             json.dump({
                 "extractions": extractions,
-                "articles": passed_articles,
+                "articles": articles,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }, f)
         logger.info(f"✓ Saved extraction checkpoint: {len(extractions)} extractions")
 
-    # STEP 6: Parse results
+    # STEP 4: Parse results
     logger.info("\n" + "=" * 80)
 
     if args.skip_parsing:
-        logger.info("STEP 6: Loading from parsing checkpoint (--skip-parsing)")
+        logger.info("STEP 4: Loading from parsing checkpoint (--skip-parsing)")
         logger.info("=" * 80)
 
         parsing_checkpoint_file = Path("output/parsing_checkpoint.json.gz")
@@ -692,7 +476,7 @@ def main():
 
         logger.info(f"✓ Loaded {len(extracted_deals)} deals and {len(perplexity_rejected)} rejected from checkpoint")
     else:
-        logger.info("STEP 6: Parse Results")
+        logger.info("STEP 4: Parse Results")
         logger.info("=" * 80)
 
         company_canonicalizer = CompanyCanonicalizer(aliases)
@@ -700,7 +484,7 @@ def main():
         perplexity_rejected = []
 
         for i, extraction in enumerate(extractions):
-            article = passed_articles[i]
+            article = articles[i]
             url = article["url"]
 
             # Skip if no extraction
@@ -816,16 +600,16 @@ def main():
 
     logger.info(f"✓ Extracted {len(extracted_deals)} deals")
 
-    # STEP 7: Deal deduplication
+    # STEP 5: Deal deduplication
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 7: Deduplicate Deals")
+    logger.info("STEP 5: Deduplicate Deals")
     logger.info("=" * 80)
 
     extracted_deals = deduplicate_deals(extracted_deals)
 
-    # STEP 8: Save outputs
+    # STEP 6: Save outputs
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 8: Save Results")
+    logger.info("STEP 6: Save Results")
     logger.info("=" * 80)
 
     output_dir = Path(__file__).parent / "output"
@@ -854,10 +638,8 @@ def main():
     logger.info(f"\nResults:")
     logger.info(f"  • URLs crawled: {len(discovered_urls)}")
     logger.info(f"  • Articles fetched: {len(articles)}")
-    logger.info(f"  • Passed keyword filter: {len(passed_articles)}")
     logger.info(f"  • Deals extracted: {len(extracted_deals)}")
-    logger.info(f"  • Rejected by Perplexity: {len(perplexity_rejected)}")
-    logger.info(f"\n💰 Cost: ~${len(passed_articles) * 0.06:.2f}")
+    logger.info(f"  • Rejected: {len(perplexity_rejected)}")
 
     return 0
 
