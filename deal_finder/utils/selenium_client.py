@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 class SeleniumWebClient:
     """Hybrid web client: tries cloudscraper first, falls back to Selenium."""
 
-    def __init__(self, headless: bool = True, timeout: int = 20):
+    def __init__(self, headless: bool = True, timeout: int = 20, cookies: Optional[list] = None):
         self.headless = headless
         self.timeout = timeout
         self.driver = None
+        self.cookies = cookies or []  # List of cookie dicts for authentication
         self.scraper = cloudscraper.create_scraper(
             browser={
                 'browser': 'chrome',
@@ -51,6 +52,24 @@ class SeleniumWebClient:
                 service = Service(ChromeDriverManager().install())
                 self.driver = webdriver.Chrome(service=service, options=options)
                 self.driver.set_page_load_timeout(self.timeout)
+
+                # Add authentication cookies if provided
+                if self.cookies:
+                    # Need to visit the domain first before adding cookies
+                    for cookie in self.cookies:
+                        domain = cookie.get('domain', '')
+                        if domain:
+                            # Visit domain to enable cookie setting
+                            protocol = 'https'
+                            base_url = f"{protocol}://{domain.lstrip('.')}"
+                            try:
+                                self.driver.get(base_url)
+                                time.sleep(1)
+                                self.driver.add_cookie(cookie)
+                                logger.info(f"Added auth cookie for {domain}")
+                            except Exception as e:
+                                logger.warning(f"Failed to add cookie for {domain}: {e}")
+
                 logger.info("ChromeDriver initialized successfully")
             except Exception as e:
                 logger.warning(f"Failed to initialize ChromeDriver: {e}")

@@ -97,6 +97,31 @@ URL_FILTERS:
       - '^https://www\.nature\.com/articles/d43747-'
     block:
       - '^https://www\.nature\.com/(subjects|collections)/'
+  'GEN':
+    allow:
+      - '^https://www\.genengnews\.com/'
+    block:
+      - '^https://www\.genengnews\.com/(tag|privacy|terms|about)/'
+  'BioWorld':
+    allow:
+      - '^https://www\.bioworld\.com/'
+    block:
+      - '^https://www\.bioworld\.com/(tag|privacy|terms|about)/'
+  'BioSpace':
+    allow:
+      - '^https://www\.biospace\.com/(article|news)/'
+    block:
+      - '^https://www\.biospace\.com/(job|company|tag|privacy)/'
+  'PRNewswire':
+    allow:
+      - '^https://www\.prnewswire\.com/news-releases/'
+    block:
+      - '^https://www\.prnewswire\.com/(about|contact|privacy)/'
+  'STAT':
+    allow:
+      - '^https://www\.statnews\.com/'
+    block:
+      - '^https://www\.statnews\.com/(tag|subscribe|privacy|about)/'
 
 # Logging
 LOG_LEVEL: "INFO"

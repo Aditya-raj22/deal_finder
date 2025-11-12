@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import openai
@@ -56,6 +57,40 @@ class OpenAIExtractor:
         self.batch_size = batch_size
         self.quick_filter_batch = quick_filter_batch
 
+    def _api_call_with_retry(self, model: str, messages: list, temperature: float = 0.0, max_retries: int = 5):
+        """Make OpenAI API call with exponential backoff retry.
+
+        Args:
+            model: Model name
+            messages: Chat messages
+            temperature: Temperature setting
+            max_retries: Maximum retry attempts
+
+        Returns:
+            API response
+        """
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    response_format={"type": "json_object"}
+                )
+                return response
+            except openai.RateLimitError as e:
+                if attempt < max_retries - 1:
+                    # More aggressive backoff: 5s, 10s, 20s, 40s
+                    wait_time = (2 ** attempt) * 5.0
+                    logger.warning(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Rate limit exceeded after {max_retries} attempts")
+                    raise
+            except Exception as e:
+                logger.error(f"API call failed: {e}")
+                raise
+
     def extract_batch(
         self,
         articles: List[dict],
@@ -78,10 +113,36 @@ class OpenAIExtractor:
 
         therapeutic_area = ta_vocab.get("therapeutic_area", "biotech")
 
-        # PASS 1: Quick filter
-        logger.info(f"Pass 1: Quick filtering {len(articles)} articles...")
-        passed_articles = self._quick_filter(articles, therapeutic_area)
-        logger.info(f"Pass 1 results: {len(passed_articles)}/{len(articles)} passed quick filter")
+        # Check for existing quick filter checkpoint
+        from pathlib import Path
+        import json
+        from datetime import datetime, timezone
+
+        quick_filter_checkpoint = Path("output/quick_filter_checkpoint.json")
+
+        if quick_filter_checkpoint.exists():
+            logger.info("Found existing quick filter checkpoint, loading...")
+            with open(quick_filter_checkpoint) as f:
+                checkpoint_data = json.load(f)
+                passed_articles = checkpoint_data.get("passed_articles", [])
+                logger.info(f"✓ Loaded {len(passed_articles)} articles from quick filter checkpoint")
+                logger.info(f"  Skipping Pass 1, proceeding directly to Pass 2")
+        else:
+            # PASS 1: Quick filter
+            logger.info(f"Pass 1: Quick filtering {len(articles)} articles...")
+            passed_articles = self._quick_filter(articles, therapeutic_area)
+            logger.info(f"Pass 1 results: {len(passed_articles)}/{len(articles)} passed quick filter")
+
+            # Save quick filter checkpoint
+            quick_filter_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            with open(quick_filter_checkpoint, 'w') as f:
+                json.dump({
+                    "passed_articles": passed_articles,
+                    "total_input": len(articles),
+                    "passed_count": len(passed_articles),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }, f, indent=2)
+            logger.info(f"✓ Saved quick filter checkpoint: {len(passed_articles)} articles passed")
 
         if not passed_articles:
             return [None] * len(articles)
@@ -91,7 +152,13 @@ class OpenAIExtractor:
         extractions = self._parallel_extract(passed_articles, ta_vocab)
 
         # Map results back to original articles
-        extraction_map = {e["url"]: e for e in extractions if e}
+        extraction_map = {e["url"]: e for e in extractions if e and isinstance(e, dict) and "url" in e}
+
+        # Warn if some extractions don't have URLs
+        missing_urls = [e for e in extractions if e and isinstance(e, dict) and "url" not in e]
+        if missing_urls:
+            logger.warning(f"Found {len(missing_urls)} extractions without URLs (will be dropped)")
+
         results = []
         for article in articles:
             url = article.get("url")
@@ -104,7 +171,7 @@ class OpenAIExtractor:
         articles: List[dict],
         therapeutic_area: str
     ) -> List[dict]:
-        """Quick filter using title + 500 chars snippet.
+        """Quick filter using consensus voting prompt + 1000 chars.
 
         Returns:
             Articles that passed filter
@@ -115,38 +182,37 @@ class OpenAIExtractor:
         for i in range(0, len(articles), self.quick_filter_batch):
             batch = articles[i:i + self.quick_filter_batch]
 
-            prompt = f"""Quick filter: Does each article describe an EARLY-STAGE {therapeutic_area} DEAL?
+            prompt = f"""For each article below, determine if it describes an EARLY-STAGE deal in {therapeutic_area}.
 
-PASS if mentions:
-- Deal keywords (acquisition, partnership, licensing, agreement)
-- {therapeutic_area} or related terms
-- Early development (preclinical, phase 1, discovery, R&D)
+PASS if ALL conditions are met:
+1. Article describes a business deal (M&A, partnership, licensing, collaboration)
+2. Deal is related to {therapeutic_area} (Oncology is OK if {therapeutic_area}-related)
+3. PRIMARY asset is BEFORE Phase 2 (preclinical, discovery, phase 1, IND-enabling, research-stage)
 
 REJECT if:
-- Not a business deal
-- Late stage (phase 2+, commercial, approved)
-- Different therapeutic area
-- Just news/opinion
+- Primary asset is Phase 2, Phase 3, approved, or marketed
+- Not a deal (just news, research results, opinion)
+- Wrong therapeutic area
 
 For each article below, return {{"passes": true}} or {{"passes": false}}
 
 """
             for j, article in enumerate(batch, 1):
                 title = article.get("title", "")
-                snippet = article.get("content", "")[:500]  # Title + 500 chars
-                prompt += f"\n[{j}] Title: {title}\nSnippet: {snippet}\n"
+                content = article.get("content", "")[:1000]  # First 1000 chars
+                prompt += f"\n[{j}] Title: {title}\nContent: {content}\n"
 
             prompt += f"\nReturn JSON array with {len(batch)} objects: [{{'passes': true/false}}, ...]\n"
 
             try:
-                response = self.client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Cheap model for quick filtering
+                # Use retry wrapper for API call
+                response = self._api_call_with_retry(
+                    model="gpt-4.1-nano-2025-04-14",
                     messages=[
-                        {"role": "system", "content": "You are a biotech deal filter. Return only JSON."},
+                        {"role": "system", "content": "You are a precise biotech deal filter. Return only JSON."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.0,
-                    response_format={"type": "json_object"}
+                    temperature=0.0
                 )
 
                 import json
@@ -183,6 +249,10 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
                 # Conservative: pass all on error
                 passed.extend(batch)
 
+            # Small delay between batches to avoid rate limits
+            if i + self.quick_filter_batch < len(articles):
+                time.sleep(0.5)
+
         return passed
 
     def _parallel_extract(
@@ -190,29 +260,81 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
         articles: List[dict],
         ta_vocab: dict
     ) -> List[dict]:
-        """Extract deals in parallel with structured outputs.
+        """Extract deals with checkpointing every 250 articles.
 
         Returns:
             List of extracted deals
         """
-        # Split into batches
-        batches = [articles[i:i + self.batch_size] for i in range(0, len(articles), self.batch_size)]
+        from pathlib import Path
+        import json
+        from datetime import datetime, timezone
 
+        CHECKPOINT_INTERVAL = 250
+        partial_checkpoint = Path("output/partial_extraction_checkpoint.json")
+
+        # Check for existing partial checkpoint
+        start_idx = 0
         all_results = []
 
-        # Process batches in parallel (5 workers max to avoid rate limits)
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {
-                executor.submit(self._extract_batch_structured, batch, ta_vocab): batch
-                for batch in batches
-            }
+        if partial_checkpoint.exists():
+            logger.info("Found partial extraction checkpoint, resuming...")
+            with open(partial_checkpoint) as f:
+                checkpoint_data = json.load(f)
+                all_results = checkpoint_data.get("results", [])
+                start_idx = checkpoint_data.get("processed_count", 0)
+                logger.info(f"✓ Resuming from article {start_idx}/{len(articles)}")
 
-            for future in as_completed(futures):
-                try:
-                    results = future.result()
-                    all_results.extend(results)
-                except Exception as e:
-                    logger.error(f"Parallel extraction batch failed: {e}")
+        # Split into batches
+        batches = [articles[i:i + self.batch_size]
+                   for i in range(start_idx, len(articles), self.batch_size)]
+
+        # Process batches sequentially with small delays (avoids rate limit hell)
+        for batch_idx, batch in enumerate(batches):
+            try:
+                # Process this batch
+                results = self._extract_batch_structured(batch, ta_vocab)
+                all_results.extend(results)
+
+                # Current total processed
+                articles_processed = start_idx + (batch_idx + 1) * len(batch)
+
+                logger.info(f"Progress: {articles_processed}/{len(articles)} articles extracted")
+
+                # Save checkpoint every CHECKPOINT_INTERVAL articles
+                if articles_processed % CHECKPOINT_INTERVAL < self.batch_size:
+                    partial_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                    with open(partial_checkpoint, 'w') as f:
+                        json.dump({
+                            "results": all_results,
+                            "processed_count": articles_processed,
+                            "total": len(articles),
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }, f)
+                    logger.info(f"✓ Saved checkpoint at {articles_processed} articles")
+
+                # Delay between batches to avoid rate limits (1.5s = ~40 batches/min)
+                if batch_idx < len(batches) - 1:
+                    time.sleep(1.5)
+
+            except Exception as e:
+                logger.error(f"Extraction batch failed at index {articles_processed}: {e}")
+                # Save checkpoint on error
+                partial_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                with open(partial_checkpoint, 'w') as f:
+                    json.dump({
+                        "results": all_results,
+                        "processed_count": articles_processed,
+                        "total": len(articles),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "error": str(e)
+                    }, f)
+                logger.info(f"✓ Saved error checkpoint at {articles_processed} articles")
+                raise
+
+        # Clear partial checkpoint on successful completion
+        if partial_checkpoint.exists():
+            partial_checkpoint.unlink()
+            logger.info("✓ Extraction complete, removed partial checkpoint")
 
         return all_results
 
@@ -229,30 +351,32 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
         therapeutic_area = ta_vocab.get("therapeutic_area", "biotech")
         ta_includes = ta_vocab.get("includes", [])
 
-        prompt = f"""Extract EARLY-STAGE {therapeutic_area} deals from these articles.
+        prompt = f"""Extract {therapeutic_area}-related business deal information from these articles.
 
 TARGET THERAPEUTIC AREA: {therapeutic_area}
 Include terms: {', '.join(ta_includes[:20])}
 
 For each article, extract:
-- parties (acquirer, target) - MUST be explicitly mentioned or use null
-- deal_type (M&A, partnership, licensing, option-to-license)
-- date_announced (YYYY-MM-DD) - MUST be explicitly mentioned or use null
+- parties (acquirer, target) - extract what's mentioned, use null if not found
+- deal_type (M&A, partnership, licensing, option-to-license) - use "partnership" if unclear
+- date_announced (YYYY-MM-DD) - extract if mentioned, use null otherwise
 - money (upfront, contingent, total in millions USD, currency) - use null if not mentioned
 - asset_focus (drug/therapy name) - use "Undisclosed" if not mentioned
-- stage (preclinical, phase 1, etc.)
-- therapeutic_area_match (true/false)
+- stage (preclinical, phase 1, phase 1a, phase 1b, first-in-human, discovery, etc.) - use "unknown" if not mentioned
+- therapeutic_area_match (true/false) - true if related to {therapeutic_area}
 - geography (country/region) - use null if not mentioned
 - confidence (high/medium/low)
 - key_evidence (brief quote from article)
 
-CRITICAL: Only extract information that is EXPLICITLY stated in the article.
-Use null for any field not found in the text - DO NOT infer or guess.
+CRITICAL REJECTION RULE:
+- REJECT (return null) if the PRIMARY ASSET is Phase 2, Phase 2+, Phase 3, Phase 4, approved, marketed, or commercial
 
-REJECT (return null) if:
-- Late-stage (phase 2+, approved, marketed)
-- Not a business deal
-- Missing both acquirer AND target
+IMPORTANT:
+- Only extract information EXPLICITLY stated in the article
+- Use null for fields not found - DO NOT infer or guess
+- If only one party is mentioned, extract it and use null for the other
+- If article mentions multiple assets at different stages, focus on the PRIMARY asset being transacted
+- Always try to extract early-stage deals - only return null if clearly phase 2+ or NOT a business deal
 
 """
         for i, article in enumerate(articles, 1):
@@ -262,14 +386,14 @@ REJECT (return null) if:
         prompt += f"Return JSON array with {len(articles)} deal objects or null if rejected.\n"
 
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+            # Use retry wrapper for API call
+            response = self._api_call_with_retry(
+                model="gpt-4.1-2025-04-14",
                 messages=[
                     {"role": "system", "content": "You are a precise biotech deal extractor. Return valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.0,
-                response_format={"type": "json_object"}
+                temperature=0.0
             )
 
             import json
@@ -300,6 +424,15 @@ REJECT (return null) if:
                     # Add URL if missing
                     if "url" not in result:
                         result["url"] = articles[i]["url"]
+
+            # Warn if we have more/fewer results than articles
+            if len(results) != len(articles):
+                logger.warning(f"Batch returned {len(results)} results for {len(articles)} articles")
+                # Truncate or pad to match article count
+                if len(results) > len(articles):
+                    results = results[:len(articles)]
+                else:
+                    results.extend([None] * (len(articles) - len(results)))
 
             logger.info(f"Extracted {len([r for r in results if r])}/{len(articles)} deals from batch")
             return results

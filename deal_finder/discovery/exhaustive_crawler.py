@@ -44,14 +44,15 @@ class ExhaustiveSiteCrawler:
             'archive_pattern': 'https://www.fiercepharma.com/archives/{year}/{month}',
             'max_subsitemaps': 34,  # Fetch all sitemaps
         },
-        # 'GEN': {
-        #     'rss_feeds': [
-        #         'https://www.genengnews.com/feed/',
-        #         'https://www.genengnews.com/topics/bioprocessing/feed/',
-        #         'https://www.genengnews.com/topics/drug-discovery/feed/',
-        #     ],
-        #     'sitemap': 'https://www.genengnews.com/sitemap.xml',
-        # },
+        'GEN': {
+            'rss_feeds': [
+                'https://www.genengnews.com/feed/',
+                'https://www.genengnews.com/topics/bioprocessing/feed/',
+                'https://www.genengnews.com/topics/drug-discovery/feed/',
+            ],
+            'sitemap': 'https://www.genengnews.com/sitemap.xml',
+            'max_subsitemaps': 50,
+        },
         'BioPharma Dive': {
             'rss_feeds': [
                 'https://www.biopharmadive.com/feeds/news/',
@@ -70,18 +71,40 @@ class ExhaustiveSiteCrawler:
             # Fetch all sub-sitemaps
             'max_subsitemaps': 50,  # Has ~33 total
         },
-        # 'BioWorld': {
-        #     'rss_feeds': [
-        #         'https://www.bioworld.com/rss',
-        #     ],
-        #     'sitemap': 'https://www.bioworld.com/sitemap.xml',
-        # },
+        'BioWorld': {
+            'rss_feeds': [
+                'https://www.bioworld.com/rss',
+            ],
+            'sitemap': 'https://www.bioworld.com/sitemap.xml',
+            'max_subsitemaps': 50,
+        },
         'BioPharmaDealmakers': {
             'rss_feeds': [
                 'https://www.nature.com/biopharmdeal.rss',
             ],
             'sitemap': 'https://www.nature.com/biopharmdeal/sitemap.xml',
             'max_subsitemaps': 124,  # Fetch all sitemaps (has 124 total)
+        },
+        'BioSpace': {
+            'rss_feeds': [
+                'https://www.biospace.com/rss',
+            ],
+            'sitemap': 'https://www.biospace.com/sitemap.xml',
+            'max_subsitemaps': 50,
+        },
+        'PRNewswire': {
+            'rss_feeds': [
+                'https://www.prnewswire.com/rss/health-care-hospitals-latest-news/health-care-latest-news-list.rss',
+            ],
+            # No comprehensive sitemap available - RSS only
+        },
+        'STAT': {
+            'rss_feeds': [
+                'https://www.statnews.com/feed/',
+            ],
+            'sitemap': 'https://www.statnews.com/sitemap.xml',
+            'max_subsitemaps': 50,
+            'requires_auth': True,  # Needs STAT+ authentication for full content
         },
     }
 
@@ -92,7 +115,8 @@ class ExhaustiveSiteCrawler:
         timeout: int = 30,
         use_index: bool = True,
         index_path: Optional[Path] = None,
-        url_filters: Optional[Dict[str, Dict[str, List[str]]]] = None
+        url_filters: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        auth_cookies: Optional[Dict[str, List[dict]]] = None
     ):
         """Initialize exhaustive crawler.
 
@@ -103,6 +127,8 @@ class ExhaustiveSiteCrawler:
             use_index: Use URL index for incremental crawling (default: True)
             index_path: Path to index file (default: output/url_index.json)
             url_filters: Per-site URL filters with 'allow' and 'block' regex patterns
+            auth_cookies: Per-site authentication cookies for paywalled sites
+                         Format: {'STAT': [{'name': 'session', 'value': '...', 'domain': '.statnews.com'}]}
         """
         # Parse dates and make them timezone-aware (UTC) for comparison
         from datetime import timezone
@@ -112,6 +138,7 @@ class ExhaustiveSiteCrawler:
         self.use_index = use_index
         self.url_index = URLIndex(index_path) if use_index else None
         self.url_filters = url_filters or {}
+        self.auth_cookies = auth_cookies or {}
 
         # Compile regex patterns for efficiency
         self._compiled_filters = {}
@@ -197,9 +224,10 @@ class ExhaustiveSiteCrawler:
                         except:
                             pass
 
-                    # Filter by date range
+                    # Filter by date range - only exclude OLD articles (before from_date)
+                    # Allow future articles and articles within range
                     if published_date:
-                        if not (self.from_date <= published_date <= self.to_date):
+                        if published_date < self.from_date:
                             continue
 
                     articles.append({
@@ -227,9 +255,10 @@ class ExhaustiveSiteCrawler:
                                 except:
                                     pass
 
-                            # Filter by date range
+                            # Filter by date range - only exclude OLD articles (before from_date)
+                            # Allow future articles and articles within range
                             if published_date:
-                                if not (self.from_date <= published_date <= self.to_date):
+                                if published_date < self.from_date:
                                     continue
 
                             articles.append({
@@ -246,12 +275,18 @@ class ExhaustiveSiteCrawler:
             logger.warning(f"Failed to fetch RSS feed {feed_url}: {e}")
             return []
 
-    def _get_selenium_client(self):
-        """Get or create reusable Selenium client."""
+    def _get_selenium_client(self, site_name: str = None):
+        """Get or create reusable Selenium client with optional auth cookies.
+
+        Args:
+            site_name: Name of site to get auth cookies for
+        """
         if self._selenium_client is None:
             from ..utils.selenium_client import SeleniumWebClient
-            self._selenium_client = SeleniumWebClient(headless=True, timeout=30)
-            logger.info("Initialized Selenium client (will be reused)")
+            # Get cookies for this site if available
+            cookies = self.auth_cookies.get(site_name, []) if site_name else []
+            self._selenium_client = SeleniumWebClient(headless=True, timeout=30, cookies=cookies)
+            logger.info(f"Initialized Selenium client{' with auth cookies' if cookies else ''} (will be reused)")
         return self._selenium_client
 
     def _fetch_sitemap_selenium(self, sitemap_url: str, site_name: str = None, site_config: dict = None) -> List[dict]:
@@ -261,8 +296,8 @@ class ExhaustiveSiteCrawler:
             List of article dicts
         """
         try:
-            # Reuse existing Selenium client
-            web_client = self._get_selenium_client()
+            # Reuse existing Selenium client (with auth if needed)
+            web_client = self._get_selenium_client(site_name)
             xml_content = web_client.fetch(sitemap_url)
 
             if not xml_content:
@@ -340,9 +375,10 @@ class ExhaustiveSiteCrawler:
                         except:
                             pass
 
-                    # Filter by date range - but INCLUDE if no date (better to over-include)
+                    # Filter by date range - only exclude OLD articles (before from_date)
+                    # Allow future articles, articles within range, and articles with no date
                     if published_date:
-                        if not (self.from_date <= published_date <= self.to_date):
+                        if published_date < self.from_date:
                             continue
 
                     articles.append({
@@ -469,9 +505,10 @@ class ExhaustiveSiteCrawler:
                         except:
                             pass
 
-                    # Filter by date range
+                    # Filter by date range - only exclude OLD articles (before from_date)
+                    # Allow future articles, articles within range, and articles with no date
                     if published_date:
-                        if not (self.from_date <= published_date <= self.to_date):
+                        if published_date < self.from_date:
                             continue
 
                     articles.append({
@@ -509,10 +546,24 @@ class ExhaustiveSiteCrawler:
 
         logger.info(f"Starting exhaustive crawl of {site_name}")
 
-        # PRIMARY: Fetch from sitemap (complete coverage)
+        # STRATEGY: RSS first (fast, recent), then sitemap (comprehensive, historical)
+
+        # 1. RECENCY: Fetch from RSS feeds first (most recent 50-100 articles)
+        for feed_url in site_config.get('rss_feeds', []):
+            logger.info(f"  Fetching RSS feed: {feed_url}")
+            articles = self._fetch_rss_feed(feed_url)
+            for article in articles:
+                url = article['url']
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    article['source'] = site_name
+                    all_articles.append(article)
+            time.sleep(1)  # Rate limiting between feeds
+
+        # 2. COMPLETENESS: Fetch from sitemap (comprehensive historical coverage)
         sitemap_url = site_config.get('sitemap')
         if sitemap_url:
-            logger.info(f"  Fetching sitemap: {sitemap_url}")
+            logger.info(f"  Fetching sitemap for comprehensive coverage: {sitemap_url}")
             articles = self._fetch_sitemap(sitemap_url, site_name, site_config)
             for article in articles:
                 url = article['url']
@@ -520,32 +571,6 @@ class ExhaustiveSiteCrawler:
                     seen_urls.add(url)
                     article['source'] = site_name
                     all_articles.append(article)
-
-        # SUPPLEMENTAL: Fetch from archive pages (if available)
-        # DISABLED: Archives also blocked by Cloudflare, sitemaps are sufficient
-        # archive_pattern = site_config.get('archive_pattern')
-        # if archive_pattern:
-        #     logger.info(f"  Fetching archive pages for date range")
-        #     archive_articles = self._fetch_archive_pages(archive_pattern, site_name)
-        #     for article in archive_articles:
-        #         url = article['url']
-        #         if url not in seen_urls:
-        #             seen_urls.add(url)
-        #             article['source'] = site_name
-        #             all_articles.append(article)
-
-        # FALLBACK: Only use RSS if sitemap AND archive failed
-        if len(all_articles) == 0:
-            logger.warning(f"  Sitemap and archive returned no articles, falling back to RSS feeds")
-            for feed_url in site_config.get('rss_feeds', []):
-                articles = self._fetch_rss_feed(feed_url)
-                for article in articles:
-                    url = article['url']
-                    if url not in seen_urls:
-                        seen_urls.add(url)
-                        article['source'] = site_name
-                        all_articles.append(article)
-                time.sleep(2)  # Rate limiting
 
         logger.info(f"Crawled {site_name}: found {len(all_articles)} unique articles")
         return all_articles

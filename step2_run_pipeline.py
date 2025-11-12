@@ -1,22 +1,23 @@
 """
-STEP 2: Run Pipeline with Pre-Generated Keywords
+Run the deal discovery pipeline with LLM-based filtering and extraction.
 
-This script runs the hybrid pipeline using keywords from config/generated_keywords.json
-that you edited in Step 1.
+This script crawls news sites, filters articles using GPT-3.5-turbo,
+and extracts deal information using GPT-4o-mini.
 
 Usage:
     python step2_run_pipeline.py --config config/config.yaml
 
 Requires:
-    - config/generated_keywords.json (from Step 1)
-    - PERPLEXITY_API_KEY environment variable
+    - OPENAI_API_KEY environment variable
 """
 
+import gzip
 import json
 import logging
 import os
 import sys
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
@@ -27,10 +28,9 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
 
 from deal_finder.config_loader import load_config, load_ta_vocab, load_aliases
-from deal_finder.keyword_filter import KeywordFilter
 from deal_finder.discovery.exhaustive_crawler import ExhaustiveSiteCrawler
+from deal_finder.discovery.url_index import URLIndex
 from deal_finder.utils.selenium_client import SeleniumWebClient
-from deal_finder.extraction.perplexity_extractor import PerplexityExtractor
 from deal_finder.normalization import CompanyCanonicalizer
 from deal_finder.models import Deal, FieldEvidence, Evidence
 from deal_finder.output import ExcelWriter
@@ -45,14 +45,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Cache for sentence transformer model (loaded once, reused)
+_SENTENCE_TRANSFORMER_MODEL = None
+
 
 def deduplicate_by_title(articles: list) -> list:
     """
     Remove duplicate articles using embeddings-based semantic similarity.
 
-    Strategy:
+    Strategy (Optimized):
     1. Generate embeddings for article titles + first 200 chars of content
-    2. Compute pairwise cosine similarity
+    2. Use k-NN to find only similar articles (not full O(n²) matrix)
     3. Group similar articles (>0.85 similarity)
     4. Keep longest version from each group
 
@@ -62,15 +65,21 @@ def deduplicate_by_title(articles: list) -> list:
     Returns:
         Deduplicated list
     """
-    from sentence_transformers import SentenceTransformer
-    import numpy as np
-    from sklearn.metrics.pairwise import cosine_similarity
+    global _SENTENCE_TRANSFORMER_MODEL
+    from sklearn.neighbors import NearestNeighbors
 
     if not articles:
         return articles
 
-    logger.info("Loading sentence transformer model for deduplication...")
-    model = SentenceTransformer('all-MiniLM-L6-v2')  # Fast, lightweight model
+    # Load model once and cache it (8-40 sec savings on subsequent calls)
+    if _SENTENCE_TRANSFORMER_MODEL is None:
+        logger.info("Loading sentence transformer model (cached for future use)...")
+        from sentence_transformers import SentenceTransformer
+        _SENTENCE_TRANSFORMER_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+    else:
+        logger.info("Using cached sentence transformer model...")
+
+    model = _SENTENCE_TRANSFORMER_MODEL
 
     # Create text to embed: title + first 200 chars of content
     texts = []
@@ -83,9 +92,14 @@ def deduplicate_by_title(articles: list) -> list:
     logger.info(f"Generating embeddings for {len(texts)} articles...")
     embeddings = model.encode(texts, show_progress_bar=True, batch_size=256)
 
-    logger.info("Computing similarity matrix...")
-    # Compute pairwise cosine similarity
-    similarity_matrix = cosine_similarity(embeddings)
+    # Use k-NN instead of full similarity matrix (10GB → 100MB memory savings!)
+    logger.info("Finding similar articles using k-NN (memory-efficient)...")
+    n_neighbors = min(20, len(articles))  # Find top 20 neighbors max
+    nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine', algorithm='auto')
+    nbrs.fit(embeddings)
+
+    # For each article, find its nearest neighbors
+    distances, indices = nbrs.kneighbors(embeddings)
 
     # Find duplicates (similarity > 0.85)
     SIMILARITY_THRESHOLD = 0.85
@@ -97,9 +111,10 @@ def deduplicate_by_title(articles: list) -> list:
         if i in seen:
             continue
 
-        # Find all articles similar to this one
-        similar_indices = [j for j in range(len(articles))
-                          if j != i and similarity_matrix[i][j] > SIMILARITY_THRESHOLD]
+        # Convert cosine distance to similarity (1 - distance)
+        similarities = 1 - distances[i]
+        similar_indices = [indices[i][j] for j in range(len(similarities))
+                          if similarities[j] > SIMILARITY_THRESHOLD and indices[i][j] != i]
 
         if similar_indices:
             # Found duplicates - keep the longest one
@@ -185,11 +200,6 @@ def main():
         help="Path to config file"
     )
     parser.add_argument(
-        "--keywords",
-        default="config/generated_keywords.json",
-        help="Path to generated keywords file (from Step 1)"
-    )
-    parser.add_argument(
         "--skip-crawl",
         action="store_true",
         help="Skip crawling and load URLs from existing index (for resuming)"
@@ -207,7 +217,12 @@ def main():
     parser.add_argument(
         "--skip-filter",
         action="store_true",
-        help="Skip filtering and use filter checkpoint"
+        help="Skip LLM filtering and use LLM checkpoint"
+    )
+    parser.add_argument(
+        "--skip-dedup",
+        action="store_true",
+        help="Skip LLM filter + deduplication, load from dedup checkpoint"
     )
     parser.add_argument(
         "--skip-extraction",
@@ -238,25 +253,18 @@ def main():
     logger.info(f"Therapeutic Area: {therapeutic_area}")
     logger.info(f"Date Range: {start_date} to {end_date}")
 
-    # Load keywords from file
-    keywords_file = Path(args.keywords)
-    if not keywords_file.exists():
-        logger.error(f"❌ Keywords file not found: {keywords_file}")
-        logger.error("Run Step 1 first: python step1_generate_keywords.py")
-        return 1
 
-    logger.info(f"\nLoading keywords from: {keywords_file}")
-    with open(keywords_file) as f:
-        keyword_data = json.load(f)
+    # Load STAT+ authentication cookies if available
+    auth_cookies = {}
+    stat_cookies_file = Path("config/stat_cookies.json")
+    if stat_cookies_file.exists():
+        logger.info(f"✓ Loading STAT+ authentication cookies from {stat_cookies_file}")
+        with open(stat_cookies_file) as f:
+            auth_cookies = json.load(f)
+    else:
+        logger.info("ℹ️  No STAT+ cookies found. STAT+ articles may be paywalled.")
+        logger.info("   To access STAT+ content: run `python extract_stat_cookies.py`")
 
-    # Use partial TA keywords for better matching (catches immunology, inflammation, etc.)
-    ta_keywords = ["immun", "infla", "i&i"]  # Partial matching
-    stage_keywords = keyword_data["keywords"]["stage_keywords"]
-    deal_keywords = keyword_data["keywords"]["deal_keywords"]
-
-    logger.info(f"✓ Loaded {len(ta_keywords)} TA keywords")
-    logger.info(f"✓ Loaded {len(stage_keywords)} stage keywords")
-    logger.info(f"✓ Loaded {len(deal_keywords)} deal keywords")
 
     # Check OpenAI API key
     openai_key = os.getenv("OPENAI_API_KEY")
@@ -287,7 +295,8 @@ def main():
             from_date=start_date,
             to_date=end_date,
             use_index=True,
-            url_filters=url_filters
+            url_filters=url_filters,
+            auth_cookies=auth_cookies
         )
 
         discovered_urls = crawler.crawl_all_sites()
@@ -302,14 +311,14 @@ def main():
         logger.info("STEP 2: Fetch Article Content (3 Parallel Workers)")
     logger.info("=" * 80)
 
-    # Load checkpoint if exists
-    checkpoint_file = Path("output/fetch_checkpoint.json")
+    # Load checkpoint if exists (gzip compressed for 80% disk savings)
+    checkpoint_file = Path("output/fetch_checkpoint.json.gz")
     fetched_urls = set()
     checkpoint_articles = []
 
     if checkpoint_file.exists():
         try:
-            with open(checkpoint_file) as f:
+            with gzip.open(checkpoint_file, 'rt', encoding='utf-8') as f:
                 checkpoint_data = json.load(f)
                 fetched_urls = set(checkpoint_data.get("fetched_urls", []))
                 checkpoint_articles = checkpoint_data.get("articles", [])
@@ -324,17 +333,16 @@ def main():
         articles = checkpoint_articles
         logger.info(f"✓ Using {len(articles)} articles from checkpoint")
     else:
-        # Filter out already-fetched URLs
-        discovered_urls = [art for art in discovered_urls if art["url"] not in fetched_urls]
-        logger.info(f"Remaining to fetch: {len(discovered_urls)} URLs")
-
-        # Group URLs by source
-        from collections import defaultdict
+        # Filter and group URLs in single pass (memory-efficient)
         urls_by_source = defaultdict(list)
+        filtered_count = 0
         for article_meta in discovered_urls:
-            source = article_meta.get("source", "Unknown")
-            urls_by_source[source].append(article_meta)
+            if article_meta["url"] not in fetched_urls:
+                source = article_meta.get("source", "Unknown")
+                urls_by_source[source].append(article_meta)
+                filtered_count += 1
 
+        logger.info(f"Remaining to fetch: {filtered_count} URLs")
         logger.info("URLs by source:")
         for source, urls in urls_by_source.items():
             logger.info(f"  {source}: {len(urls)} URLs")
@@ -367,6 +375,7 @@ def main():
         # Worker function
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from threading import Lock
+        from queue import Queue
         import time
 
         progress_lock = Lock()
@@ -375,72 +384,84 @@ def main():
         all_fetched_articles = checkpoint_articles.copy()  # Start with checkpoint articles
         checkpoint_counter = [0]
 
+        # Create web client pool (limit concurrent browsers to reduce memory)
+        max_browsers = min(10, len(worker_groups))
+        web_client_pool = Queue()
+
+        logger.info(f"Creating pool of {max_browsers} reusable web clients...")
+        for i in range(max_browsers):
+            web_client = SeleniumWebClient(headless=True, timeout=5)
+            web_client_pool.put(web_client)
+
         def save_checkpoint():
-            """Save checkpoint to disk."""
+            """Save checkpoint to disk (gzip compressed)."""
             try:
-                with open(checkpoint_file, 'w') as f:
+                with gzip.open(checkpoint_file, 'wt', encoding='utf-8') as f:
                     json.dump({
                         "fetched_urls": list(fetched_urls),
                         "articles": all_fetched_articles,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }, f)
-                logger.info(f"✓ Checkpoint saved: {len(fetched_urls)} URLs, {len(all_fetched_articles)} articles")
+                logger.info(f"✓ Checkpoint saved (compressed): {len(fetched_urls)} URLs, {len(all_fetched_articles)} articles")
             except Exception as e:
                 logger.error(f"Failed to save checkpoint: {e}")
 
         def fetch_worker(worker_name, article_list):
             """Worker function to fetch articles."""
             worker_logger = logging.getLogger(worker_name)
-            web_client = SeleniumWebClient(headless=True, timeout=5)
-            worker_articles = []
-            worker_failures = 0
+            web_client = web_client_pool.get()  # Get from pool (reuse browser)
 
-            for i, article_meta in enumerate(article_list, 1):
-                url = article_meta["url"]
+            try:
+                worker_articles = []
+                worker_failures = 0
 
-                try:
-                    html = web_client.fetch(url)
-                    if not html:
+                for i, article_meta in enumerate(article_list, 1):
+                    url = article_meta["url"]
+
+                    try:
+                        html = web_client.fetch(url)
+                        if not html:
+                            worker_failures += 1
+                            continue
+
+                        soup = BeautifulSoup(html, "lxml")
+                        text = soup.get_text(separator=" ", strip=True)
+
+                        if len(text) < 500:
+                            continue
+
+                        article = {
+                            "url": url,
+                            "title": article_meta.get("title", ""),
+                            "published_date": article_meta.get("published_date", ""),
+                            "content": text[:20000],
+                            "source": article_meta.get("source", "Unknown")
+                        }
+                        worker_articles.append(article)
+
+                        # Add to shared list and mark as fetched
+                        with progress_lock:
+                            all_fetched_articles.append(article)
+                            fetched_urls.add(url)
+                            checkpoint_counter[0] += 1
+
+                            # Save checkpoint every 1000 articles
+                            if checkpoint_counter[0] % 1000 == 0:
+                                save_checkpoint()
+
+                    except Exception as e:
                         worker_failures += 1
-                        continue
 
-                    soup = BeautifulSoup(html, "lxml")
-                    text = soup.get_text(separator=" ", strip=True)
+                    # Update progress every 50 articles
+                    if i % 50 == 0:
+                        with progress_lock:
+                            total_processed[0] += 50
+                            logger.info(f"Overall Progress: {total_processed[0]}/{len(discovered_urls)} (~{total_failures[0]} failures)")
 
-                    if len(text) < 500:
-                        continue
-
-                    article = {
-                        "url": url,
-                        "title": article_meta.get("title", ""),
-                        "published_date": article_meta.get("published_date", ""),
-                        "content": text[:20000],
-                        "source": article_meta.get("source", "Unknown")
-                    }
-                    worker_articles.append(article)
-
-                    # Add to shared list and mark as fetched
-                    with progress_lock:
-                        all_fetched_articles.append(article)
-                        fetched_urls.add(url)
-                        checkpoint_counter[0] += 1
-
-                        # Save checkpoint every 1000 articles
-                        if checkpoint_counter[0] % 1000 == 0:
-                            save_checkpoint()
-
-                except Exception as e:
-                    worker_failures += 1
-
-                # Update progress every 50 articles
-                if i % 50 == 0:
-                    with progress_lock:
-                        total_processed[0] += 50
-                        logger.info(f"Overall Progress: {total_processed[0]}/{len(discovered_urls)} (~{total_failures[0]} failures)")
-
-            web_client.close()
-            worker_logger.info(f"{worker_name} finished: {len(worker_articles)} articles, {worker_failures} failures")
-            return worker_articles, worker_failures
+                worker_logger.info(f"{worker_name} finished: {len(worker_articles)} articles, {worker_failures} failures")
+                return worker_articles, worker_failures
+            finally:
+                web_client_pool.put(web_client)  # Return to pool for reuse
 
         # Run parallel workers
         logger.info(f"\nStarting {len(worker_groups)} parallel workers...")
@@ -462,102 +483,118 @@ def main():
         # Final checkpoint save
         save_checkpoint()
 
+        # Cleanup web client pool
+        logger.info("Cleaning up web client pool...")
+        while not web_client_pool.empty():
+            client = web_client_pool.get()
+            try:
+                client.close()
+            except Exception as e:
+                logger.warning(f"Error closing web client: {e}")
+
         articles = all_fetched_articles
         logger.info(f"✓ Fetched {len(articles)} articles total ({total_failures[0]} failures)")
         logger.info(f"✓ Checkpoint preserved at: {checkpoint_file}")
 
-    # STEP 3: Skip deduplication for now (will do after keyword filter)
+    # STEP 3 & 4: LLM Pre-filter + Deduplication
     logger.info("\n" + "=" * 80)
-    logger.info("STEP 3: Deduplication (SKIPPED - will do after keyword filter)")
-    logger.info("=" * 80)
-    logger.info(f"Using all {len(articles)} articles for keyword filtering")
 
-    # STEP 4: Load from checkpoint or run filter
-    if args.skip_filter:
-        logger.info("\n" + "=" * 80)
-        logger.info("STEP 4: Loading from keyword filter checkpoint (--skip-filter)")
+    if args.skip_dedup:
+        # Skip both LLM filter and deduplication - load final checkpoint
+        logger.info("STEP 3-4: Loading from deduplication checkpoint (--skip-dedup)")
         logger.info("=" * 80)
 
-        keyword_checkpoint_file = Path("output/keyword_checkpoint.json")
-        if not keyword_checkpoint_file.exists():
-            logger.error("❌ Keyword filter checkpoint not found! Run without --skip-filter first.")
+        filter_checkpoint_file = Path("output/filter_checkpoint.json.gz")
+        if not filter_checkpoint_file.exists():
+            logger.error("❌ Deduplication checkpoint not found! Run without --skip-dedup first.")
             return 1
 
-        with open(keyword_checkpoint_file) as f:
+        with gzip.open(filter_checkpoint_file, 'rt', encoding='utf-8') as f:
             checkpoint_data = json.load(f)
             passed_articles = checkpoint_data.get("articles", [])
 
-        logger.info(f"✓ Loaded {len(passed_articles)} articles from keyword filter checkpoint")
+        logger.info(f"✓ Loaded {len(passed_articles)} articles from deduplication checkpoint")
+        logger.info(f"  Estimated extraction cost: ${len(passed_articles) * 0.06:.2f}")
+
+    elif args.skip_filter:
+        # Skip LLM filter but do deduplication
+        logger.info("STEP 3: Loading from LLM filter checkpoint (--skip-filter)")
+        logger.info("=" * 80)
+
+        llm_checkpoint_file = Path("output/llm_checkpoint.json.gz")
+        if not llm_checkpoint_file.exists():
+            logger.error("❌ LLM filter checkpoint not found! Run without --skip-filter first.")
+            return 1
+
+        with gzip.open(llm_checkpoint_file, 'rt', encoding='utf-8') as f:
+            checkpoint_data = json.load(f)
+            llm_passed = checkpoint_data.get("articles", [])
+
+        logger.info(f"✓ Loaded {len(llm_passed)} articles from LLM filter checkpoint")
+
+        # STEP 4: Deduplicate
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4: Deduplicate Filtered Articles (Embeddings)")
+        logger.info("=" * 80)
+
+        passed_articles = deduplicate_by_title(llm_passed)
+        logger.info(f"  After deduplication: {len(llm_passed)} → {len(passed_articles)} articles")
+        logger.info(f"  Estimated extraction cost: ${len(passed_articles) * 0.06:.2f}")
+
+        # Save dedup checkpoint (compressed)
+        filter_checkpoint_file = Path("output/filter_checkpoint.json.gz")
+        filter_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(filter_checkpoint_file, 'wt', encoding='utf-8') as f:
+            json.dump({"articles": passed_articles}, f)
+        logger.info(f"✓ Saved deduplication checkpoint: {len(passed_articles)} articles")
 
     else:
-        # STEP 4: Keyword filter
-        logger.info("\n" + "=" * 80)
-        logger.info("STEP 4: Keyword Pre-Filter")
+        # Run full LLM filter + deduplication
+        logger.info("STEP 3: LLM Pre-Filter (Conservative - GPT-3.5-turbo)")
         logger.info("=" * 80)
-
-        # Smart filter: TA partial match + stage keywords + money mentions
-        keyword_filter = KeywordFilter(
-            ta_keywords=ta_keywords,
-            stage_keywords=stage_keywords,
-            deal_keywords=deal_keywords,
-            require_deal_keyword=False,  # Don't require deal keywords
-            min_ta_matches=1,  # Need 1 TA partial match (immun OR infla OR i&i)
-            min_deal_matches=1,  # Not used
-            require_money_mention=True  # Must mention money (dollar, euro, $, €, USD, etc.)
-        )
-
-        filter_results = keyword_filter.filter_articles(articles)
-        passed_articles = filter_results["passed"]
-
-        logger.info(f"✓ Keyword Filter: {len(passed_articles)}/{len(articles)} passed")
-        logger.info(f"  Cost savings: ${(len(articles) - len(passed_articles)) * 0.06:.2f}")
-
-        # Save checkpoint after keyword filter
-        keyword_checkpoint_file = Path("output/keyword_checkpoint.json")
-        keyword_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(keyword_checkpoint_file, 'w') as f:
-            json.dump({"articles": passed_articles}, f)
-        logger.info(f"✓ Saved keyword filter checkpoint: {len(passed_articles)} articles")
-
-        # STEP 4.5: LLM Pre-filter (GPT-4o-mini for early-stage deals)
-        logger.info("\n" + "=" * 80)
-        logger.info("STEP 4.5: LLM Pre-Filter (Early-Stage Deals)")
-        logger.info("=" * 80)
+        logger.info(f"Processing {len(articles)} articles with LLM pre-filter...")
 
         from deal_finder.llm_prefilter import LLMPreFilter
         openai_key = os.getenv("OPENAI_API_KEY")
         if openai_key:
             llm_filter = LLMPreFilter(api_key=openai_key, batch_size=20)
-            llm_results = llm_filter.filter_articles(passed_articles, therapeutic_area)
-            passed_articles = llm_results["passed"]
+            llm_results = llm_filter.filter_articles(articles, therapeutic_area)
+            llm_passed = llm_results["passed"]
+            logger.info(f"  LLM filter: {len(articles)} → {len(llm_passed)} articles")
             logger.info(f"  LLM filter cost: ${llm_results['cost']:.2f}")
         else:
             logger.warning("⚠ OPENAI_API_KEY not set, skipping LLM pre-filter")
+            llm_passed = articles
 
-        logger.info(f"  Estimated Perplexity cost (before dedup): ${len(passed_articles) * 0.06:.2f}")
+        # Save LLM checkpoint (compressed)
+        llm_checkpoint_file = Path("output/llm_checkpoint.json.gz")
+        llm_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(llm_checkpoint_file, 'wt', encoding='utf-8') as f:
+            json.dump({"articles": llm_passed}, f)
+        logger.info(f"✓ Saved LLM filter checkpoint: {len(llm_passed)} articles")
 
-        # STEP 4.6: Deduplicate filtered articles with embeddings
+        # STEP 4: Deduplicate LLM-filtered articles
         logger.info("\n" + "=" * 80)
-        logger.info("STEP 4.5: Deduplicate Filtered Articles (Embeddings)")
+        logger.info("STEP 4: Deduplicate Filtered Articles (Embeddings)")
         logger.info("=" * 80)
 
-        passed_articles = deduplicate_by_title(passed_articles)
-        logger.info(f"  Final Perplexity cost (after dedup): ${len(passed_articles) * 0.06:.2f}")
+        passed_articles = deduplicate_by_title(llm_passed)
+        logger.info(f"  After deduplication: {len(llm_passed)} → {len(passed_articles)} articles")
+        logger.info(f"  Estimated extraction cost: ${len(passed_articles) * 0.06:.2f}")
 
-        # Save checkpoint after filtering
-        filter_checkpoint_file = Path("output/filter_checkpoint.json")
+        # Save dedup checkpoint (compressed)
+        filter_checkpoint_file = Path("output/filter_checkpoint.json.gz")
         filter_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(filter_checkpoint_file, 'w') as f:
+        with gzip.open(filter_checkpoint_file, 'wt', encoding='utf-8') as f:
             json.dump({"articles": passed_articles}, f)
-        logger.info(f"✓ Saved filter checkpoint: {len(passed_articles)} articles")
+        logger.info(f"✓ Saved deduplication checkpoint: {len(passed_articles)} articles")
 
     if args.filter_only:
         logger.info("\n" + "=" * 80)
-        logger.info("FILTER-ONLY MODE: Stopping before Perplexity extraction")
+        logger.info("FILTER-ONLY MODE: Stopping before OpenAI extraction")
         logger.info("=" * 80)
-        logger.info(f"With current settings (min_ta={keyword_filter.min_ta_matches}, min_deal={keyword_filter.min_deal_matches}):")
-        logger.info(f"  {len(passed_articles)} articles would be sent to Perplexity")
-        logger.info(f"  Estimated cost: ${len(passed_articles) * 0.06:.2f}")
+        logger.info(f"  {len(passed_articles)} articles passed LLM pre-filter")
+        logger.info(f"  Estimated OpenAI extraction cost: ${len(passed_articles) * 0.06:.2f}")
         return 0
 
     if not passed_articles:
@@ -575,12 +612,12 @@ def main():
         logger.info("STEP 5: Loading from extraction checkpoint (--skip-extraction)")
         logger.info("=" * 80)
 
-        extraction_checkpoint_file = Path("output/extraction_checkpoint.json")
+        extraction_checkpoint_file = Path("output/extraction_checkpoint.json.gz")
         if not extraction_checkpoint_file.exists():
             logger.error("❌ Extraction checkpoint not found! Run without --skip-extraction first.")
             return 1
 
-        with open(extraction_checkpoint_file) as f:
+        with gzip.open(extraction_checkpoint_file, 'rt', encoding='utf-8') as f:
             checkpoint_data = json.load(f)
             extractions = checkpoint_data.get("extractions", [])
             passed_articles = checkpoint_data.get("articles", [])
@@ -593,9 +630,9 @@ def main():
         extractions = openai_extractor.extract_batch(passed_articles, ta_vocab)
 
         # Save extraction checkpoint
-        extraction_checkpoint_file = Path("output/extraction_checkpoint.json")
+        extraction_checkpoint_file = Path("output/extraction_checkpoint.json.gz")
         extraction_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(extraction_checkpoint_file, 'w') as f:
+        with gzip.open(extraction_checkpoint_file, 'wt', encoding='utf-8') as f:
             json.dump({
                 "extractions": extractions,
                 "articles": passed_articles,
@@ -610,12 +647,12 @@ def main():
         logger.info("STEP 6: Loading from parsing checkpoint (--skip-parsing)")
         logger.info("=" * 80)
 
-        parsing_checkpoint_file = Path("output/parsing_checkpoint.json")
+        parsing_checkpoint_file = Path("output/parsing_checkpoint.json.gz")
         if not parsing_checkpoint_file.exists():
             logger.error("❌ Parsing checkpoint not found! Run without --skip-parsing first.")
             return 1
 
-        with open(parsing_checkpoint_file) as f:
+        with gzip.open(parsing_checkpoint_file, 'rt', encoding='utf-8') as f:
             checkpoint_data = json.load(f)
             # Load extracted deals
             extracted_deals_data = checkpoint_data.get("extracted_deals", [])
@@ -668,13 +705,9 @@ def main():
 
             # Skip if no extraction
             if not extraction:
-                keyword_matches = article.get("keyword_matches", {})
                 perplexity_rejected.append({
                     "url": url,
                     "title": article.get("title", ""),
-                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
-                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
                     "perplexity_reason": "No deal found"
                 })
                 continue
@@ -685,28 +718,16 @@ def main():
 
             # Skip if missing critical fields
             if not parsed.get("target") or not parsed.get("acquirer"):
-                keyword_matches = article.get("keyword_matches", {})
                 perplexity_rejected.append({
                     "url": url,
                     "title": article.get("title", ""),
-                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
-                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
                     "perplexity_reason": "Missing target or acquirer"
                 })
                 continue
 
-            # Normalize stage and deal_type for enum compatibility
-            stage_raw = (parsed.get("stage") or "unknown").lower()
+            # Accept stage as-is without validation (stage is now a plain string, not enum)
+            stage = (parsed.get("stage") or "unknown").lower()
             deal_type_raw = (parsed.get("deal_type") or "partnership").lower()
-
-            # Map stage to valid enum values
-            valid_stages = ["preclinical", "phase 1", "first-in-human", "unknown"]
-            if stage_raw not in valid_stages:
-                logger.info(f"Mapping invalid stage '{stage_raw}' to 'unknown' for {url}")
-                stage = "unknown"
-            else:
-                stage = stage_raw
 
             # Map deal_type to valid enum values
             valid_deal_types = ["m&a", "partnership", "licensing", "option-to-license"]
@@ -742,19 +763,15 @@ def main():
                 extracted_deals.append(deal)
             except Exception as e:
                 logger.warning(f"Failed to create Deal object for {url}: {e}")
-                keyword_matches = article.get("keyword_matches", {})
                 perplexity_rejected.append({
                     "url": url,
                     "title": article.get("title", ""),
-                    "ta_keywords": ", ".join(keyword_matches.get("ta", [])[:10]),
-                    "stage_keywords": ", ".join(keyword_matches.get("stage", [])),
-                    "deal_keywords": ", ".join(keyword_matches.get("deal", [])),
                     "perplexity_reason": f"Validation error: {str(e)}"
                 })
                 continue
 
         # Save parsing checkpoint
-        parsing_checkpoint_file = Path("output/parsing_checkpoint.json")
+        parsing_checkpoint_file = Path("output/parsing_checkpoint.json.gz")
         parsing_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Convert deals to dict for JSON serialization
@@ -789,7 +806,7 @@ def main():
             }
             extracted_deals_data.append(deal_dict)
 
-        with open(parsing_checkpoint_file, 'w') as f:
+        with gzip.open(parsing_checkpoint_file, 'wt', encoding='utf-8') as f:
             json.dump({
                 "extracted_deals": extracted_deals_data,
                 "perplexity_rejected": perplexity_rejected,

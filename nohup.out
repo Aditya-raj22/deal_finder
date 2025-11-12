@@ -1,2 +1,0 @@
-usage: step2_run_pipeline.py [-h] [--config CONFIG] [--keywords KEYWORDS]
-step2_run_pipeline.py: error: argument --config: expected one argument

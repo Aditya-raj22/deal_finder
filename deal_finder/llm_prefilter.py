@@ -1,4 +1,4 @@
-"""LLM-based pre-filter using GPT-4o-mini for cheap, accurate filtering."""
+"""Conservative LLM-based pre-filter using GPT-3.5-turbo for cheap filtering."""
 
 import logging
 import os
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMPreFilter:
-    """Filter articles using cheap LLM (GPT-4o-mini) before expensive Perplexity extraction."""
+    """Conservative filter to discard clearly irrelevant articles before deduplication."""
 
     def __init__(self, api_key: Optional[str] = None, batch_size: int = 20):
         """Initialize LLM pre-filter.
@@ -32,11 +32,18 @@ class LLMPreFilter:
         articles: List[dict],
         therapeutic_area: str = "immunology/inflammation"
     ) -> dict:
-        """Filter articles using LLM to identify early-stage I&I deals.
+        """Conservatively filter out clearly irrelevant articles.
+
+        ONLY DISCARD if article:
+        1. Doesn't talk about a deal at all
+        2. Explicitly says indication is NOT immunology/inflammation/oncology
+        3. Explicitly mentions phase 2 or more
+
+        When in doubt, KEEP the article.
 
         Args:
             articles: List of dicts with keys: url, title, content
-            therapeutic_area: Target therapeutic area
+            therapeutic_area: Target therapeutic area (for reference)
 
         Returns:
             Dict with keys:
@@ -87,11 +94,11 @@ class LLMPreFilter:
                     # On failure, assume all pass (conservative)
                     passed.extend(batch)
 
-        # Estimate cost: ~$0.15 per 1M input tokens, ~$0.60 per 1M output tokens
-        # Assume ~300 tokens input/article, ~50 tokens output
-        input_tokens = len(articles) * 300
-        output_tokens = len(articles) * 50
-        total_cost = (input_tokens / 1_000_000 * 0.15) + (output_tokens / 1_000_000 * 0.60)
+        # Estimate cost for GPT-3.5-turbo: ~$0.50 per 1M input tokens, ~$1.50 per 1M output tokens
+        # Assume ~250 tokens input/article (500 chars), ~30 tokens output
+        input_tokens = len(articles) * 250
+        output_tokens = len(articles) * 30
+        total_cost = (input_tokens / 1_000_000 * 0.50) + (output_tokens / 1_000_000 * 1.50)
 
         logger.info(f"LLM pre-filter: {len(passed)}/{len(articles)} passed (${total_cost:.2f})")
 
@@ -116,48 +123,59 @@ class LLMPreFilter:
         articles: List[dict],
         therapeutic_area: str
     ) -> List[dict]:
-        """Filter a batch of articles using GPT-4o-mini.
+        """Filter a batch of articles using GPT-3.5-turbo.
 
         Returns:
             List of dicts with keys: passes (bool), reason (str)
         """
-        # Build batch prompt
-        prompt = f"""You are a biotech deal filter. For each article below, determine if it describes an EARLY-STAGE deal in {therapeutic_area}.
+        # Build batch prompt with explicit examples
+        prompt = f"""You are a conservative biotech article filter. For each article below (first 500 characters), decide if it should be DISCARDED.
 
-CRITERIA FOR PASSING:
-1. Must be about a business deal (M&A, partnership, licensing, collaboration)
-2. Must mention {therapeutic_area} or related conditions
-3. Must be EARLY STAGE: preclinical, phase 1, discovery, research-stage, or IND-enabling
-4. Must involve two companies (acquirer/licensor + target/licensee)
-5. Must mention money/deal value OR specific therapeutic asset
+DISCARD ONLY IF:
+1. Does NOT talk about a business deal (M&A, partnership, licensing, collaboration, acquisition, agreement)
+   - Keep if it mentions any deal-related keywords
+   - Keep if unclear
 
-REJECT IF:
-- Late stage (phase 2, phase 3, approved, marketed, commercial)
-- Not a deal (just research news, clinical trial results, earnings)
-- Wrong therapeutic area
-- Opinion pieces, interviews, webinars
-- Just mentions of past deals in passing
+2. EXPLICITLY says the indication is NOT immunology/inflammation/oncology
+   - If it says immunology, inflammation, oncology, autoimmune, cancer, tumor → KEEP
+   - If it doesn't mention indication at all → KEEP
+   - Only discard if it clearly says something like "cardiovascular", "neuro", "metabolic" with NO mention of I&I/oncology
 
-For each article, return JSON: {{"passes": true/false, "reason": "brief explanation"}}
+3. EXPLICITLY mentions Phase 2, Phase 3, Phase II, Phase III, approved, marketed, or commercial product
+   - If it says "preclinical", "discovery", "Phase 1", "Phase I", "IND" → KEEP
+   - If it doesn't mention clinical stage → KEEP
+   - Only discard if it clearly mentions phase 2 or later
+
+WHEN IN DOUBT → KEEP THE ARTICLE
 
 """
 
-        # Add articles
+        # Add articles (first 500 chars only)
         for i, article in enumerate(articles, 1):
             title = article.get("title", "")
-            content = article.get("content", "")[:500]  # First 500 chars
-            prompt += f"\n[ARTICLE {i}]\nTitle: {title}\nContent: {content}\n"
+            content = article.get("content", "")[:500]  # First 500 chars only
+            prompt += f"\n[ARTICLE {i}]\nTitle: {title}\nContent: {content}...\n"
 
-        prompt += f"\n\nReturn a JSON array with {len(articles)} objects in order:\n"
-        prompt += '[{"passes": true/false, "reason": "..."}, ...]\n'
+        prompt += f"""\n\nYou MUST return a JSON object with a "results" key containing an array of EXACTLY {len(articles)} objects.
+
+REQUIRED FORMAT:
+{{
+  "results": [
+    {{"passes": true, "reason": "mentions deal"}},
+    {{"passes": false, "reason": "no deal mentioned"}},
+    ...
+  ]
+}}
+
+Return {len(articles)} results in the same order as the articles above.\n"""
 
         # Call OpenAI
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini",  # Cheapest model: $0.15/$0.60 per 1M tokens
+            model="gpt-3.5-turbo",  # Cheap and fast: $0.50/$1.50 per 1M tokens
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a precise biotech deal filter. Return only valid JSON arrays."
+                    "content": "You are a conservative filter. When uncertain, keep the article. Return only valid JSON arrays."
                 },
                 {
                     "role": "user",
@@ -174,27 +192,46 @@ For each article, return JSON: {{"passes": true/false, "reason": "brief explanat
         import json
         try:
             results = json.loads(content)
-            # Handle both dict with "results" key or direct list
-            if isinstance(results, dict) and "results" in results:
-                results = results["results"]
-            elif isinstance(results, dict) and len(results) == len(articles):
-                # Convert dict to list
-                results = list(results.values())
 
-            # Flatten any nested lists (in case LLM returns [[{...}], [{...}], ...])
+            # Handle various response formats
+            if isinstance(results, list):
+                # Direct list format
+                pass
+            elif isinstance(results, dict):
+                # Try common keys
+                if "results" in results:
+                    results = results["results"]
+                elif "articles" in results:
+                    results = results["articles"]
+                else:
+                    # Assume dict keys are article numbers, values are results
+                    # Sort by key to maintain order
+                    sorted_items = sorted(results.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
+                    results = [item[1] for item in sorted_items]
+
+            # Flatten any nested lists and validate each item is a dict
             flattened = []
             for item in results:
                 if isinstance(item, list):
-                    # If item is a list, extend with its contents (handles nested lists)
-                    flattened.extend(item)
-                else:
-                    # If item is a dict, append as-is
+                    for subitem in item:
+                        if isinstance(subitem, dict):
+                            flattened.append(subitem)
+                elif isinstance(item, dict):
                     flattened.append(item)
+                else:
+                    # Invalid format, use conservative default
+                    logger.warning(f"Invalid result format: {item}")
+                    flattened.append({"passes": True, "reason": "Invalid format"})
 
             results = flattened
 
+            # Ensure we have the right number of results
+            if len(results) != len(articles):
+                logger.error(f"Expected {len(articles)} results, got {len(results)}. Using conservative defaults.")
+                return [{"passes": True, "reason": "Count mismatch"} for _ in articles]
+
             return results
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response: {content[:200]}")
+        except Exception as e:
+            logger.error(f"Failed to parse LLM response: {e}. Content: {content[:200]}")
             # Return all as passing (conservative)
             return [{"passes": True, "reason": "Parse error"} for _ in articles]

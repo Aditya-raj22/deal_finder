@@ -1,6 +1,6 @@
 """Discovery module."""
 
-from .crawler import DealCrawler
-from .sources import SourceRegistry
+from .exhaustive_crawler import ExhaustiveSiteCrawler
+from .url_index import URLIndex
 
-__all__ = ["DealCrawler", "SourceRegistry"]
+__all__ = ["ExhaustiveSiteCrawler", "URLIndex"]

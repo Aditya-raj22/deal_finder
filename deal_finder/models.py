@@ -30,6 +30,7 @@ class DevelopmentStage(str, Enum):
     PRECLINICAL = "preclinical"
     PHASE_1 = "phase 1"
     FIRST_IN_HUMAN = "first-in-human"
+    UNKNOWN = "unknown"
 
 
 class Evidence(BaseModel):
@@ -68,7 +69,7 @@ class Deal(BaseModel):
     date_announced: date = Field(description="Announcement date in UTC")
     target: str = Field(description="Target or partner company (canonical)")
     acquirer: str = Field(description="Acquirer or partner company (canonical)")
-    stage: DevelopmentStage = Field(description="Development stage at announcement")
+    stage: str = Field(description="Development stage at announcement")  # Changed from DevelopmentStage enum to plain string
     therapeutic_area: str = Field(description="Primary therapeutic area")
     asset_focus: str = Field(description="Asset or focus of the deal")
     deal_type_detailed: DealTypeDetailed = Field(description="Detailed deal type")

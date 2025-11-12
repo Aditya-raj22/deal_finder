@@ -1,0 +1,1113 @@
+{
+  "total_tested": 100,
+  "distribution": {
+    "0": 100
+  },
+  "grouped_results": {
+    "0": [
+      {
+        "url": "https://www.fiercebiotech.com/biotech/humanigen-s-covid-19-phase-3-hits-goal-sending-stock-soaring",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/merck-blackstone-adc-royalty-deal-sac-tmt/804597/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.nature.com/articles/d43747-020-00534-1",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/gilead-trodelvy-rights-everest-breast-cancer/629779/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/asco22-mingling-face-to-face-stole-the-spotlight-in-reunion-with-50000-of-your-closest-friends/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/covid-19-roundup-pfizer-biontech-ask-for-kid-booster-eua-novartis-molecular-partners-may-need-another-trial-for-pandemic-therapy/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/astrazeneca-daiichis-trodelvy-rival-fails-improve-overall-survival-breast-cancer",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/manufacturing-roundup-cellvax-partners-up-with-theragent-for-phii-trial-oxford-biomedica-sells-facility-for-70m/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/cro/fortrea-completes-spinoff-labcorp-names-new-members-board",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/hhs-approves-340b-rebate-model-plans-for-merck-bristol-myers-and-others/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/takeda-says-multiyear-restructuring-is-on-track/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/emergent-to-deliver-a-120m-contract-for-the-smallpox-vaccine-for-the-us-stockpile/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/incyte-gets-another-graft-versus-host-disease-drug-approval-this-time-with-partner-syndax/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/pharma-group-bets-up-to-1b-plus-on-the-phiii-resurrection-of-a-once-dead-and-buried-ldl-drug/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/sanofi-pauses-supply-of-two-flu-vaccines-in-china-over-unexpected-circumstances/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/manufacturing/fda-posts-flurry-voluntary-drug-recalls-teva-glenmark-apotex-and-vistapharm",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/aldeyra-posts-1-hit-1-miss-twice-rejected-dry-eye-drug-plans-fda-filing",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/national-resilience-manufacturing-operations-wind-down/750246/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/eyeing-nicotine-replacement-market-qnovia-bags-17m-take-inhaled-delivery-device-clinic",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/research/peanut-allergy-drug-staves-anaphylaxis-two-weeks-single-dose",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/a-small-swiss-biotech-tackles-a-huge-global-health-issue-with-a-handoff-from-gsk-but-can-it-make-any-money-from-it/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/purespring-bottles-105m-series-b-bring-kidney-disease-gene-therapy-clinic",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/regeneron-illumina-invest-in-truveta-inhibrx-bios-150m-loan/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/david-hungs-nuvation-bio-axes-clinical-program-lays-off-30-after-researchers-say-they-cant-manage-the-side-effects/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/lilly-invites-biotechs-use-its-new-ai-platform-help-develop-their-drugs",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/fda-nod-rsv-shot-abrysvo-pfizer-gains-edge-gsks-arexvy-will-it-amount-much",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/tectonic-enters-public-markets-in-one-of-few-biotech-reverse-mergers-this-year/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/senators-demand-more-from-gsk-to-boost-shingrix-supply",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/medtech/apple-watch-faces-another-possible-sales-ban-after-losing-itc-vote-masimo-pulse-oximetry",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/medtech/investor-syndicate-takes-majority-control-histosonics",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/amgen-targets-physicians-with-biosimilars-education-campaign-in-advance-of-expected-2023-breakout/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/novartis-names-bulto-new-u-s-pharma-chief-as-exec-reshuffle-continues",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/cro/more-than-a-quarter-rare-disease-trials-are-culled-due-to-low-patient-rates-report",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/ferring-adstiladrin-ash-hhs-bristol-myers-opdivo-crc/744789/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/fda-accepts-gefapixant-for-review-cough-positioning-merck-to-get-head-start-bayer-and",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/fujifilm-diosynth-opens-new-uk-facility-bora-completes-emergent-factory-buy/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/sen-cassidy-questions-lilly-and-amgen-on-340b-restrictions-on-contract-pharmacies/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/astrazeneca-deepens-china-investment-editas-loses-cfo-to-dyne/743158/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/fda-converts-eua-lillys-olumiant-full-nod-hospitalized-covid-19-patients",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/marketing/verastem-fda-filing-imminent-shows-toll-rare-cancer-takes-wellbeing",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/intellia-hae-phase-3-study-start-ntla-2002/729052/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/as-moderna-adds-on-a-host-of-new-commercial-subs-theres-room-for-3-more-vaccine-candidates-in-the-pipeline/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/tech-commerce-focused-investor-unveils-500m-bet-on-healthcare/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/medtech/zimmer-biomet-inks-177m-deal-monogram-and-its-hands-free-orthopedic-robot",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/with-long-term-data-in-hand-vivek-ramaswamys-dermavant-team-dashes-to-the-goal-line-with-topical-psoriasis-contender/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/marketing/biogens-new-ceo-viehbacher-looks-ads-patient-outreach-boost-promotion-new-drugs",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/vertex-gets-vanza-triple-approval-and-trikafta-expansion/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/generation-jettisons-90-employees-due-lack-time-cash-develop-autoimmune-tech",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/medtech/fda-moves-block-olympus-endoscope-imports-over-manufacturing-issues",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/on-heels-of-maritide-data-danish-obesity-biotech-discloses-e80m-series-a/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.nature.com/articles/d43747-021-00092-0",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.nature.com/articles/d43747-020-00731-y",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/longtime-gilead-captain-john-martin-mastermind-life-saving-hiv-hcv-drugs-has-died",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/astrazeneca-scores-new-goal-on-the-pipeline-front-adding-its-first-ai-generated-target-to-the-portfolio/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/marketing/content-king-digital-materials-linked-25-times-boost-new-patient-starts",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/as-china-moves-beyond-me-too-do-western-regulators-need-to-reconsider/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/lilly-omvoh-fda-approval-crohns-ibd/737540/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/sponsored/knipperx-transforms-patient-assistance-programs-through-technology-and-patient-focused",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/vigene-biosciences-goes-big-on-maryland-viral-vector-expansion-as-it-rides-high-on-altimmune-vaccine-deal/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/abbvie-rinvoq-fda-delay-jak-inhibitors/596933/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/johnson-johnson-moderna-set-to-face-shareholder-votes-vaccine-pricing-strategy-manufacturing",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/aclaris-makes-a-deal-aims-to-raise-80m-emmecells-ph1-update-in-corneal-edema/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/nash-hopeful-peril-fda-questions-intercept-drugs-modest-efficacy-excess-risk",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/after-its-makeover-alkermes-touts-its-pipeline-program-and-rare-biotech-model",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/digital-health-deals-rallied-in-the-first-half-of-2024-though-funding-still-trails-last-year/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/fda-animal-testing-phase-out-antibodies-requirements/745129/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/23andmes-ceo-submits-bid-to-take-company-private-for-74-7m/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/abbvie-gives-sosei-starring-role-neurological-drug-discovery-plans-paying-40m-and",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/research/liver-targeting-vaccine-protects-mice-allergic-asthma-reactions-least-year",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/jjs-spravato-hit-1b-in-revenue-in-2024/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/medtech/fda-clears-novel-neck-collar-to-help-protect-student-athletes-brains-from-sports-related",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/legend-to-double-carvykti-production-as-it-targets-blockbuster-status/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/research/telomere-lengthening-molecule-treatment-resistant-alt-cancer-cells-could-be-their-achilles",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/jazz-flexes-deal-chops-paying-sumitomo-50m-ex-asia-rights-early-phase-narcolepsy-prospect",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/sanofi-and-sobis-altuviiio-nabs-approval-poised-rival-roche-hemophilia-market",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/video-asmanex-r-twisthaler-r-110-mcg-mometasone-furoate-inhalation-powder-now-available",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/from-partner-to-part-family-takeda-pulls-trigger-maverick-buyout",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/how-apples-vice-president-of-health-views-opportunities-in-healthcare/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/fda-nukes-actiniums-radiotherapy-blood-cancer-filing-plans-prompting-pivot-partnering",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/marketing/healthcare-marketers-report-falling-budgets-and-share-what-works-attract-patients",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/astrazeneca-china-spinoff-report-new-rd-pact-takedas-vyvanse-shortage",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/uniqure-huntington-gene-therapy-amt-130-study-results/702969/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/novartis-rolls-out-encouraging-phase-2-data-rare-kidney-diseases-little-competition-sight",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/medtech/quidelorthos-rapid-antigen-covid-test-first-receive-regular-clearance-fda",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/lilly-goes-down-under-find-buyer-failed-cancer-drug-lartruvo-selling-telix-5m",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/rallybio-cuts-19-staffers-shelves-preclinical-rare-disease-programs/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/roche-stop-dosing-huntington-tominersen-ionis/597171/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/evotec-after-stock-tanking-blows-attracts-private-equity-buyout-interest-report",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/latest-news-amgens-landmark-ok-for-kras-drug-inside-vertex-3-0-the-big-hunt-for-car-t-in-solid-tumors-and-more/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/nih-broke-law-withholding-grants-government-accountability-office",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/easl24-aligos-arbutus-atea-barinthus-and-bluejay-unveil-hepatitis-results/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.nature.com/articles/d43747-022-00006-8",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/zymeworks-plots-corporate-move-canada-tax-friendly-delaware",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/spinoff-or-54b-sale-glaxosmithkline-s-consumer-health-outfit-draws-buyout-interest-report",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/former-viela-ceo-bing-yao-finds-his-next-gig-bringing-chinese-rd-innovation-stateside/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/gsk-bharat-biotech-slash-price-first-malaria-vaccine-less-5-2028",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://endpoints.news/why-talkspace-is-building-its-own-llm/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercebiotech.com/biotech/sanofi-takes-250m-hit-after-gamble-jj-e-coli-vaccine-ends-phase-3-failure",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.biopharmadive.com/news/amgen-obesity-amg-133-earnings-call-maritide/706798/",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      },
+      {
+        "url": "https://www.fiercepharma.com/pharma/conflict-interest-novo-nordisk-exec-steps-down-abpi-president-amidst-novos-serious-code",
+        "title": "",
+        "votes": [
+          false,
+          false,
+          false
+        ],
+        "yes_count": 0,
+        "consensus": false
+      }
+    ],
+    "1": [],
+    "2": [],
+    "3": []
+  }
+}
