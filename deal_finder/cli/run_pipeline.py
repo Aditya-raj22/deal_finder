@@ -1,0 +1,543 @@
+"""
+STEP 2: Run Pipeline with Pre-Generated Keywords
+
+This script runs the hybrid pipeline using keywords from config/generated_keywords.json
+that you edited in Step 1.
+
+Usage:
+    python -m deal_finder.cli.run_pipeline --config config/config.yaml
+
+Requires:
+    - config/generated_keywords.json (from Step 1)
+    - OPENAI_API_KEY environment variable
+"""
+
+import json
+import logging
+import os
+import sys
+import uuid
+from datetime import datetime
+from pathlib import Path
+from decimal import Decimal
+
+from ..config_loader import load_config, load_ta_vocab, load_aliases
+from ..filtering import KeywordFilter, LLMPreFilter
+from ..deduplication import TitleDeduplicator, DealDeduplicator
+from ..discovery.exhaustive_crawler import ExhaustiveSiteCrawler
+from ..utils.selenium_client import SeleniumWebClient
+from ..extraction.openai_extractor import OpenAIExtractor
+from ..normalization import CompanyCanonicalizer
+from ..models import Deal, FieldEvidence
+from ..output import ExcelWriter
+from bs4 import BeautifulSoup
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+def main():
+    """Run Step 2: Pipeline with pre-generated keywords."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Step 2: Run Pipeline")
+    parser.add_argument(
+        "--config",
+        default="config/config.yaml",
+        help="Path to config file"
+    )
+    parser.add_argument(
+        "--keywords",
+        default="config/generated_keywords.json",
+        help="Path to generated keywords file (from Step 1)"
+    )
+    parser.add_argument(
+        "--skip-crawl",
+        action="store_true",
+        help="Skip crawling and load URLs from existing index (for resuming)"
+    )
+    parser.add_argument(
+        "--skip-fetch",
+        action="store_true",
+        help="Skip fetching and use only checkpoint articles"
+    )
+    parser.add_argument(
+        "--filter-only",
+        action="store_true",
+        help="Stop after keyword filtering (don't run extraction)"
+    )
+    parser.add_argument(
+        "--skip-filter",
+        action="store_true",
+        help="Skip filtering and use filter checkpoint"
+    )
+
+    args = parser.parse_args()
+
+    logger.info("=" * 80)
+    logger.info("STEP 2: Run Pipeline with Pre-Generated Keywords")
+    logger.info("=" * 80)
+
+    # Load configuration
+    config = load_config(args.config)
+    ta_vocab = load_ta_vocab(config)
+    aliases = load_aliases(config)
+
+    therapeutic_area = ta_vocab["therapeutic_area"]
+    start_date = config.START_DATE
+    end_date = config.end_date_resolved
+
+    logger.info(f"Therapeutic Area: {therapeutic_area}")
+    logger.info(f"Date Range: {start_date} to {end_date}")
+
+    # Load keywords from file
+    keywords_file = Path(args.keywords)
+    if not keywords_file.exists():
+        logger.error(f"❌ Keywords file not found: {keywords_file}")
+        logger.error("Run Step 1 first: python -m deal_finder.cli.generate_keywords")
+        return 1
+
+    logger.info(f"\nLoading keywords from: {keywords_file}")
+    with open(keywords_file) as f:
+        keyword_data = json.load(f)
+
+    ta_keywords = keyword_data["keywords"]["ta_keywords"]
+    stage_keywords = keyword_data["keywords"]["stage_keywords"]
+    deal_keywords = keyword_data["keywords"]["deal_keywords"]
+
+    logger.info(f"✓ Loaded {len(ta_keywords)} TA keywords")
+    logger.info(f"✓ Loaded {len(stage_keywords)} stage keywords")
+    logger.info(f"✓ Loaded {len(deal_keywords)} deal keywords")
+
+    # Check OpenAI API key
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        logger.error("❌ OPENAI_API_KEY not set!")
+        return 1
+
+    logger.info("✓ OpenAI API key found")
+
+    # STEP 1: Crawl sitemaps
+    logger.info("\n" + "=" * 80)
+
+    if args.skip_crawl:
+        logger.info("STEP 1: Load URLs from Index (--skip-crawl)")
+        logger.info("=" * 80)
+        from ..discovery.url_index import URLIndex
+        url_index = URLIndex()
+        discovered_urls = url_index.get_all_urls_with_metadata()
+        logger.info(f"✓ Loaded {len(discovered_urls)} article URLs from index")
+    else:
+        logger.info("STEP 1: Crawl Sitemaps (All Sites)")
+        logger.info("=" * 80)
+
+        # Get URL filters from config
+        url_filters = config.URL_FILTERS
+
+        crawler = ExhaustiveSiteCrawler(
+            from_date=start_date,
+            to_date=end_date,
+            use_index=True,
+            url_filters=url_filters
+        )
+
+        discovered_urls = crawler.crawl_all_sites()
+        logger.info(f"✓ Discovered {len(discovered_urls)} article URLs from all sites")
+
+    # STEP 2: Fetch content (PARALLEL with checkpointing)
+    logger.info("\n" + "=" * 80)
+
+    if args.skip_fetch:
+        logger.info("STEP 2: Load Articles from Checkpoint (--skip-fetch)")
+    else:
+        logger.info("STEP 2: Fetch Article Content (Parallel Workers)")
+    logger.info("=" * 80)
+
+    # Load checkpoint if exists
+    checkpoint_file = Path("output/fetch_checkpoint.json")
+    fetched_urls = set()
+    checkpoint_articles = []
+
+    if checkpoint_file.exists():
+        try:
+            with open(checkpoint_file) as f:
+                checkpoint_data = json.load(f)
+                fetched_urls = set(checkpoint_data.get("fetched_urls", []))
+                checkpoint_articles = checkpoint_data.get("articles", [])
+            logger.info(f"✓ Loaded checkpoint: {len(fetched_urls)} URLs already fetched, {len(checkpoint_articles)} articles")
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint: {e}")
+            fetched_urls = set()
+            checkpoint_articles = []
+
+    # If skip-fetch, use only checkpoint articles
+    if args.skip_fetch:
+        articles = checkpoint_articles
+        logger.info(f"✓ Using {len(articles)} articles from checkpoint")
+    else:
+        # Filter out already-fetched URLs
+        discovered_urls = [art for art in discovered_urls if art["url"] not in fetched_urls]
+        logger.info(f"Remaining to fetch: {len(discovered_urls)} URLs")
+
+        # Group URLs by source
+        from collections import defaultdict
+        urls_by_source = defaultdict(list)
+        for article_meta in discovered_urls:
+            source = article_meta.get("source", "Unknown")
+            urls_by_source[source].append(article_meta)
+
+        logger.info("URLs by source:")
+        for source, urls in urls_by_source.items():
+            logger.info(f"  {source}: {len(urls)} URLs")
+
+        # Create source-dedicated worker groups (3 workers per source)
+        worker_groups = []
+
+        for source, urls in urls_by_source.items():
+            if not urls:
+                continue
+
+            # Split this source's URLs into 3 equal chunks
+            chunk_size = len(urls) // 3
+
+            for i in range(3):
+                start = i * chunk_size
+                end = start + chunk_size if i < 2 else len(urls)  # Last worker gets remainder
+
+                worker_name = f"Worker-{source.replace(' ', '')}-{i+1}"
+                worker_urls = urls[start:end]
+
+                if worker_urls:  # Only add if has URLs
+                    worker_groups.append((worker_name, worker_urls))
+
+        logger.info(f"\nSource-dedicated worker distribution ({len(worker_groups)} workers):")
+        for name, urls in worker_groups:
+            logger.info(f"  {name}: {len(urls)} URLs")
+
+        # Worker function
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from threading import Lock
+        import time
+
+        progress_lock = Lock()
+        total_processed = [0]
+        total_failures = [0]
+        all_fetched_articles = checkpoint_articles.copy()  # Start with checkpoint articles
+        checkpoint_counter = [0]
+
+        def save_checkpoint():
+            """Save checkpoint to disk."""
+            try:
+                checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(checkpoint_file, 'w') as f:
+                    json.dump({
+                        "fetched_urls": list(fetched_urls),
+                        "articles": all_fetched_articles,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }, f)
+                logger.info(f"✓ Checkpoint saved: {len(fetched_urls)} URLs, {len(all_fetched_articles)} articles")
+            except Exception as e:
+                logger.error(f"Failed to save checkpoint: {e}")
+
+        def fetch_worker(worker_name, article_list):
+            """Worker function to fetch articles."""
+            worker_logger = logging.getLogger(worker_name)
+            web_client = SeleniumWebClient(headless=True, timeout=5)
+            worker_articles = []
+            worker_failures = 0
+
+            for i, article_meta in enumerate(article_list, 1):
+                url = article_meta["url"]
+
+                try:
+                    html = web_client.fetch(url)
+                    if not html:
+                        worker_failures += 1
+                        continue
+
+                    soup = BeautifulSoup(html, "lxml")
+                    text = soup.get_text(separator=" ", strip=True)
+
+                    if len(text) < 500:
+                        continue
+
+                    article = {
+                        "url": url,
+                        "title": article_meta.get("title", ""),
+                        "published_date": article_meta.get("published_date", ""),
+                        "content": text[:20000],
+                        "source": article_meta.get("source", "Unknown")
+                    }
+                    worker_articles.append(article)
+
+                    # Add to shared list and mark as fetched
+                    with progress_lock:
+                        all_fetched_articles.append(article)
+                        fetched_urls.add(url)
+                        checkpoint_counter[0] += 1
+
+                        # Save checkpoint every 1000 articles
+                        if checkpoint_counter[0] % 1000 == 0:
+                            save_checkpoint()
+
+                except Exception as e:
+                    worker_failures += 1
+
+                # Update progress every 50 articles
+                if i % 50 == 0:
+                    with progress_lock:
+                        total_processed[0] += 50
+                        logger.info(f"Overall Progress: {total_processed[0]}/{len(discovered_urls)} (~{total_failures[0]} failures)")
+
+            web_client.close()
+            worker_logger.info(f"{worker_name} finished: {len(worker_articles)} articles, {worker_failures} failures")
+            return worker_articles, worker_failures
+
+        # Run parallel workers
+        logger.info(f"\nStarting {len(worker_groups)} parallel workers...")
+
+        with ThreadPoolExecutor(max_workers=len(worker_groups)) as executor:
+            futures = {
+                executor.submit(fetch_worker, name, urls): name
+                for name, urls in worker_groups if len(urls) > 0
+            }
+
+            for future in as_completed(futures):
+                worker_name = futures[future]
+                try:
+                    worker_articles, worker_failures = future.result()
+                    total_failures[0] += worker_failures
+                except Exception as e:
+                    logger.error(f"{worker_name} crashed: {e}")
+
+        # Final checkpoint save
+        save_checkpoint()
+
+        articles = all_fetched_articles
+        logger.info(f"✓ Fetched {len(articles)} articles total ({total_failures[0]} failures)")
+        logger.info(f"✓ Checkpoint preserved at: {checkpoint_file}")
+
+    # STEP 3: Skip deduplication for now (will do after keyword filter)
+    logger.info("\n" + "=" * 80)
+    logger.info("STEP 3: Deduplication (SKIPPED - will do after keyword filter)")
+    logger.info("=" * 80)
+    logger.info(f"Using all {len(articles)} articles for keyword filtering")
+
+    # STEP 4: Load from checkpoint or run filter
+    if args.skip_filter:
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4: Loading from keyword filter checkpoint (--skip-filter)")
+        logger.info("=" * 80)
+
+        keyword_checkpoint_file = Path("output/keyword_checkpoint.json")
+        if not keyword_checkpoint_file.exists():
+            logger.error("❌ Keyword filter checkpoint not found! Run without --skip-filter first.")
+            return 1
+
+        with open(keyword_checkpoint_file) as f:
+            checkpoint_data = json.load(f)
+            passed_articles = checkpoint_data.get("articles", [])
+
+        logger.info(f"✓ Loaded {len(passed_articles)} articles from keyword filter checkpoint")
+
+    else:
+        # STEP 4: Keyword filter
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4: Keyword Pre-Filter")
+        logger.info("=" * 80)
+
+        keyword_filter = KeywordFilter(
+            ta_keywords=ta_keywords,
+            stage_keywords=stage_keywords,
+            deal_keywords=deal_keywords,
+            require_deal_keyword=True,
+            min_ta_matches=2,
+            min_deal_matches=2,
+            require_money_mention=True
+        )
+
+        filter_results = keyword_filter.filter_articles(articles)
+        passed_articles = filter_results["passed"]
+
+        logger.info(f"✓ Keyword Filter: {len(passed_articles)}/{len(articles)} passed")
+        logger.info(f"  Cost savings: ${(len(articles) - len(passed_articles)) * 0.06:.2f}")
+
+        # Save checkpoint after keyword filter
+        keyword_checkpoint_file = Path("output/keyword_checkpoint.json")
+        keyword_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(keyword_checkpoint_file, 'w') as f:
+            json.dump({"articles": passed_articles}, f)
+        logger.info(f"✓ Saved keyword filter checkpoint: {len(passed_articles)} articles")
+
+        # STEP 4.5: LLM Pre-filter
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4.5: LLM Pre-Filter (Early-Stage Deals)")
+        logger.info("=" * 80)
+
+        if openai_key:
+            llm_filter = LLMPreFilter(api_key=openai_key, batch_size=20)
+            llm_results = llm_filter.filter_articles(passed_articles, therapeutic_area)
+            passed_articles = llm_results["passed"]
+            logger.info(f"  LLM filter cost: ${llm_results['cost']:.2f}")
+        else:
+            logger.warning("⚠ OPENAI_API_KEY not set, skipping LLM pre-filter")
+
+        logger.info(f"  Estimated extraction cost (before dedup): ${len(passed_articles) * 0.06:.2f}")
+
+        # STEP 4.6: Deduplicate filtered articles with embeddings
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 4.6: Deduplicate Filtered Articles (Embeddings)")
+        logger.info("=" * 80)
+
+        title_dedup = TitleDeduplicator(similarity_threshold=0.85)
+        passed_articles = title_dedup.deduplicate(passed_articles)
+        logger.info(f"  Final extraction cost (after dedup): ${len(passed_articles) * 0.06:.2f}")
+
+        # Save checkpoint after filtering
+        filter_checkpoint_file = Path("output/filter_checkpoint.json")
+        filter_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(filter_checkpoint_file, 'w') as f:
+            json.dump({"articles": passed_articles}, f)
+        logger.info(f"✓ Saved filter checkpoint: {len(passed_articles)} articles")
+
+    if args.filter_only:
+        logger.info("\n" + "=" * 80)
+        logger.info("FILTER-ONLY MODE: Stopping before extraction")
+        logger.info("=" * 80)
+        logger.info(f"  {len(passed_articles)} articles would be sent to extraction")
+        logger.info(f"  Estimated cost: ${len(passed_articles) * 0.06:.2f}")
+        return 0
+
+    if not passed_articles:
+        logger.warning("⚠ No articles passed filter!")
+        return 1
+
+    # STEP 5: OpenAI extraction
+    logger.info("\n" + "=" * 80)
+    logger.info("STEP 5: OpenAI Extraction (GPT-4o-mini, Two-Pass + Parallel)")
+    logger.info("=" * 80)
+
+    openai_extractor = OpenAIExtractor(api_key=openai_key, batch_size=10)
+    extractions = openai_extractor.extract_batch(passed_articles, ta_vocab)
+
+    # STEP 6: Parse results
+    logger.info("\n" + "=" * 80)
+    logger.info("STEP 6: Parse Results")
+    logger.info("=" * 80)
+
+    company_canonicalizer = CompanyCanonicalizer(aliases)
+    extracted_deals = []
+    extraction_rejected = []
+
+    for i, extraction in enumerate(extractions):
+        article = passed_articles[i]
+        url = article["url"]
+
+        if not extraction:
+            extraction_rejected.append({
+                "url": url,
+                "title": article.get("title", ""),
+                "ta_keywords": ", ".join(article["keyword_matches"]["ta"][:10]),  # First 10
+                "stage_keywords": ", ".join(article["keyword_matches"]["stage"]),
+                "deal_keywords": ", ".join(article["keyword_matches"]["deal"]),
+                "rejection_reason": "No deal found or did not match criteria"
+            })
+            continue
+
+        parsed = openai_extractor.parse_extracted_deal(extraction, therapeutic_area)
+
+        if not parsed:
+            extraction_rejected.append({
+                "url": url,
+                "title": article.get("title", ""),
+                "ta_keywords": ", ".join(article["keyword_matches"]["ta"][:10]),
+                "stage_keywords": ", ".join(article["keyword_matches"]["stage"]),
+                "deal_keywords": ", ".join(article["keyword_matches"]["deal"]),
+                "rejection_reason": "Parsing failed or filtered out"
+            })
+            continue
+
+        deal = Deal(
+            date_announced=parsed["date_announced"],
+            target=company_canonicalizer.canonicalize(parsed["target"]),
+            acquirer=company_canonicalizer.canonicalize(parsed["acquirer"]),
+            stage=parsed["stage"],
+            therapeutic_area=parsed["therapeutic_area"],
+            asset_focus=parsed["asset_focus"],
+            deal_type_detailed=parsed["deal_type"],
+            source_url=parsed["url"],
+            needs_review=parsed["needs_review"],
+            upfront_value_usd=parsed["upfront_value_usd"],
+            contingent_payment_usd=parsed["contingent_payment_usd"],
+            total_deal_value_usd=parsed["total_deal_value_usd"],
+            upfront_pct_total=parsed["upfront_pct_total"],
+            geography=parsed["geography"],
+            detected_currency=parsed["currency"],
+            fx_rate=Decimal("1.0") if parsed["currency"] == "USD" else None,
+            fx_source="OpenAI",
+            evidence=FieldEvidence(
+                date_announced=parsed["evidence"],
+                target=parsed["evidence"],
+                acquirer=parsed["evidence"]
+            ),
+            inclusion_reason=f"Keyword + OpenAI (conf: {parsed['confidence']})",
+            timestamp_utc=datetime.utcnow().isoformat()
+        )
+
+        extracted_deals.append(deal)
+
+    logger.info(f"✓ Extracted {len(extracted_deals)} deals")
+
+    # STEP 7: Deal deduplication
+    logger.info("\n" + "=" * 80)
+    logger.info("STEP 7: Deduplicate Deals")
+    logger.info("=" * 80)
+
+    deal_dedup = DealDeduplicator()
+    extracted_deals = deal_dedup.deduplicate(extracted_deals)
+
+    # STEP 8: Save outputs
+    logger.info("\n" + "=" * 80)
+    logger.info("STEP 8: Save Results")
+    logger.info("=" * 80)
+
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+
+    run_id = uuid.uuid4().hex[:8]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Output 1: Deals
+    if extracted_deals:
+        deals_file = output_dir / f"deals_{timestamp}_{run_id}.xlsx"
+        ExcelWriter().write(extracted_deals, str(deals_file))
+        logger.info(f"✓ Saved {len(extracted_deals)} deals to: {deals_file}")
+
+    # Output 2: Rejected
+    if extraction_rejected:
+        import pandas as pd
+        rejected_file = output_dir / f"rejected_{timestamp}_{run_id}.xlsx"
+        pd.DataFrame(extraction_rejected).to_excel(rejected_file, index=False)
+        logger.info(f"✓ Saved {len(extraction_rejected)} rejected to: {rejected_file}")
+
+    # Summary
+    logger.info("\n" + "=" * 80)
+    logger.info("✅ PIPELINE COMPLETE!")
+    logger.info("=" * 80)
+    logger.info(f"\nResults:")
+    logger.info(f"  • URLs crawled: {len(discovered_urls)}")
+    logger.info(f"  • Articles fetched: {len(articles)}")
+    logger.info(f"  • Passed keyword filter: {len(passed_articles)}")
+    logger.info(f"  • Deals extracted: {len(extracted_deals)}")
+    logger.info(f"  • Rejected by extraction: {len(extraction_rejected)}")
+    logger.info(f"\n💰 Cost: ~${len(passed_articles) * 0.06:.2f}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
