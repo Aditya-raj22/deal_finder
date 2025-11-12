@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deal Finder Pipeline</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="title">⚗️ DEAL FINDER</h1>
+            <p class="subtitle">Early-Stage Biotech Pipeline Monitor</p>
+            <div class="status-badge" id="systemStatus">● IDLE</div>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="grid">
+            <!-- Configuration Panel -->
+            <section class="panel config-panel">
+                <h2 class="panel-title">⚙️ Configuration</h2>
+
+                <div class="form-group">
+                    <label>Therapeutic Area</label>
+                    <input type="text" id="therapeuticArea" value="immunology/inflammation"
+                           placeholder="e.g., immunology/inflammation">
+                </div>
+
+                <div class="form-group">
+                    <label>Development Stage</label>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="preclinical" checked> Preclinical
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="phase 1" checked> Phase 1
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="first-in-human" checked> First-in-Human
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>News Sources</label>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="FierceBiotech" class="source-checkbox" checked> FierceBiotech
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="BioPharma Dive" class="source-checkbox" checked> BioPharma Dive
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="Endpoints" class="source-checkbox" checked> Endpoints
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="BioSpace" class="source-checkbox" checked> BioSpace
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="STAT" class="source-checkbox" checked> STAT
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="BioCentury" class="source-checkbox" checked> BioCentury
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="GEN" class="source-checkbox" checked> GEN
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Date Range</label>
+                    <input type="date" id="startDate" value="2021-01-01">
+                    <span class="date-separator">to</span>
+                    <input type="date" id="endDate" placeholder="today">
+                </div>
+
+                <div class="button-group">
+                    <button id="startBtn" class="btn btn-primary" onclick="startPipeline()">
+                        ▶ START PIPELINE
+                    </button>
+                    <button id="stopBtn" class="btn btn-danger" onclick="stopPipeline()" disabled>
+                        ⏹ STOP
+                    </button>
+                    <button class="btn btn-secondary" onclick="clearCheckpoints()">
+                        🗑 Clear Checkpoints
+                    </button>
+                </div>
+            </section>
+
+            <!-- Progress Monitor -->
+            <section class="panel progress-panel">
+                <h2 class="panel-title">📊 Progress Monitor</h2>
+
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                        <span class="progress-text" id="progressText">0%</span>
+                    </div>
+                </div>
+
+                <div class="step-tracker" id="stepTracker">
+                    <!-- Steps will be dynamically inserted -->
+                </div>
+
+                <div class="stats-grid" id="statsGrid">
+                    <!-- Stats will be dynamically inserted -->
+                </div>
+
+                <div class="cost-estimate" id="costEstimate">
+                    <span class="cost-label">Estimated Cost:</span>
+                    <span class="cost-value">$0.00</span>
+                </div>
+            </section>
+
+            <!-- Outputs Panel -->
+            <section class="panel outputs-panel">
+                <h2 class="panel-title">📁 Outputs</h2>
+
+                <div id="outputsList" class="outputs-list">
+                    <p class="empty-state">No outputs yet. Start a pipeline run to generate results.</p>
+                </div>
+            </section>
+
+            <!-- Live Console -->
+            <section class="panel console-panel">
+                <h2 class="panel-title">💻 System Logs</h2>
+                <div class="console" id="console">
+                    <div class="console-line">
+                        <span class="console-prompt">$</span>
+                        <span>System ready. Configure and start pipeline above.</span>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <span>Deal Finder v2.0</span>
+            <span>●</span>
+            <span>OpenAI GPT-4.1 Pipeline</span>
+            <span>●</span>
+            <span id="connectionStatus">⚡ Connected</span>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
