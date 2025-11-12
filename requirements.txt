@@ -8,6 +8,13 @@ PyYAML>=6.0.1
 python-dateutil>=2.8.2
 langdetect>=1.0.9
 deep-translator>=1.11.4
+pandas>=2.0.0
+python-dotenv>=1.0.0
+
+# ML dependencies for embeddings deduplication
+sentence-transformers>=2.2.0
+scikit-learn>=1.3.0
+torch>=2.0.0
 
 # FX rates
 forex-python>=1.8
