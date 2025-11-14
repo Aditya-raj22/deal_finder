@@ -381,6 +381,7 @@ async def clear_checkpoints():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates."""
+    global active_pipeline
     await manager.connect(websocket)
 
     try:
