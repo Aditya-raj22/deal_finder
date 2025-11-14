@@ -43,12 +43,21 @@ function handleWebSocketMessage(message) {
             updateStatus(message.data);
             break;
         case 'pipeline_started':
-            logConsole('Pipeline started', 'success');
+            logConsole('Pipeline started with config:', 'success');
+            logConsole(JSON.stringify(message.config, null, 2), 'info');
             updateButtons(true);
             break;
         case 'pipeline_stopped':
-            logConsole('Pipeline stopped', 'info');
+            logConsole('Pipeline stopped by user', 'info');
             updateButtons(false);
+            break;
+        case 'pipeline_completed':
+            const exitMsg = message.exit_code === 0 ?
+                '✓ Pipeline completed successfully!' :
+                `⚠ Pipeline exited with code ${message.exit_code}`;
+            logConsole(exitMsg, message.exit_code === 0 ? 'success' : 'error');
+            updateButtons(false);
+            loadOutputs();
             break;
         case 'log':
             logConsole(message.text, message.level || 'info');
@@ -192,7 +201,11 @@ async function startPipeline() {
         });
 
         if (response.ok) {
-            logConsole(`Starting pipeline for ${therapeuticArea}...`, 'success');
+            const result = await response.json();
+            logConsole(`Starting pipeline for: ${therapeuticArea}`, 'success');
+            logConsole(`Stages: ${stages.join(', ')}`, 'info');
+            logConsole(`Sources: ${sources.length} selected`, 'info');
+            logConsole(`Date range: ${startDate} to ${endDate || 'today'}`, 'info');
             updateButtons(true);
         } else {
             const error = await response.json();

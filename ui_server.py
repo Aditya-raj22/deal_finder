@@ -188,13 +188,35 @@ async def start_pipeline(config: PipelineConfig):
 
     pipeline_config = config.dict()
 
+    # Create a temporary config file with UI settings
+    import yaml
+    from pathlib import Path
+
+    # Load base config
+    config_path = Path("config/config.yaml")
+    with open(config_path) as f:
+        base_config = yaml.safe_load(f)
+
+    # Override with UI settings
+    base_config["THERAPEUTIC_AREA"] = config.therapeutic_area.replace("/", "_").replace(" ", "_")
+    base_config["EARLY_STAGE_ALLOWED"] = config.stages
+    base_config["START_DATE"] = config.start_date
+    if config.end_date:
+        base_config["END_DATE"] = config.end_date
+
+    # Write temporary config
+    temp_config_path = Path("output/ui_config.yaml")
+    temp_config_path.parent.mkdir(exist_ok=True)
+    with open(temp_config_path, 'w') as f:
+        yaml.dump(base_config, f)
+
     # Set environment variable for OpenAI key
     env = os.environ.copy()
 
-    # Build command
+    # Build command - use temp config
     cmd = [
         "python", "step2_run_pipeline.py",
-        "--config", "config/config.yaml"
+        "--config", str(temp_config_path)
     ]
 
     # Start pipeline
@@ -214,7 +236,7 @@ async def start_pipeline(config: PipelineConfig):
             "config": pipeline_config
         })
 
-        return {"status": "started", "pid": active_pipeline.pid}
+        return {"status": "started", "pid": active_pipeline.pid, "config_used": pipeline_config}
 
     except Exception as e:
         return JSONResponse(
@@ -325,9 +347,25 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # If pipeline is running, send log updates
             if active_pipeline and active_pipeline.poll() is None:
-                # Read latest logs (non-blocking)
-                # This is simplified - in production, use proper log tailing
-                pass
+                # Read any available output (non-blocking)
+                try:
+                    import select
+                    if active_pipeline.stdout and select.select([active_pipeline.stdout], [], [], 0)[0]:
+                        line = active_pipeline.stdout.readline()
+                        if line:
+                            await websocket.send_json({
+                                "type": "log",
+                                "text": line.strip(),
+                                "level": "info"
+                            })
+                except Exception:
+                    pass  # Ignore read errors
+            elif active_pipeline and active_pipeline.poll() is not None:
+                # Pipeline finished
+                await websocket.send_json({
+                    "type": "pipeline_completed",
+                    "exit_code": active_pipeline.poll()
+                })
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
