@@ -176,6 +176,7 @@ function updateCostEstimate(status) {
 
 // Start pipeline
 async function startPipeline() {
+    const apiKey = document.getElementById('apiKey').value;
     const therapeuticArea = document.getElementById('therapeuticArea').value;
     const stages = Array.from(document.querySelectorAll('input[type="checkbox"][value]'))
         .filter(cb => cb.checked && !cb.classList.contains('source-checkbox'))
@@ -185,7 +186,22 @@ async function startPipeline() {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value || null;
 
+    // Validation
+    if (!therapeuticArea) {
+        logConsole('❌ Error: Therapeutic area is required', 'error');
+        return;
+    }
+    if (stages.length === 0) {
+        logConsole('❌ Error: Select at least one development stage', 'error');
+        return;
+    }
+    if (sources.length === 0) {
+        logConsole('❌ Error: Select at least one news source', 'error');
+        return;
+    }
+
     const config = {
+        api_key: apiKey || null,
         therapeutic_area: therapeuticArea,
         sources: sources,
         stages: stages,
@@ -333,10 +349,38 @@ function updateConnectionStatus(connected) {
     status.style.color = connected ? 'inherit' : '#8B1426';
 }
 
+// Load available TA vocabs
+async function loadTAVocabs() {
+    try {
+        const response = await fetch('/api/ta-vocabs');
+        const data = await response.json();
+
+        if (data.vocabs.length === 0) {
+            logConsole('No TA vocab files found in config/ta_vocab/', 'error');
+            return;
+        }
+
+        const vocabList = data.vocabs.map(v => v.name).join(', ');
+        const taHint = document.getElementById('taHint');
+        taHint.textContent = `Available: ${vocabList}`;
+        taHint.style.color = 'var(--crimson)';
+
+        logConsole(`Available TAs: ${vocabList}`, 'info');
+
+        // Optionally set first one as default
+        if (data.vocabs.length > 0 && !document.getElementById('therapeuticArea').value) {
+            document.getElementById('therapeuticArea').value = data.vocabs[0].name;
+        }
+    } catch (error) {
+        logConsole(`Failed to load TA vocabs: ${error.message}`, 'error');
+    }
+}
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
     connectWebSocket();
     loadOutputs();
+    loadTAVocabs();  // Load available TAs on startup
 
     // Set default start date to 2021-01-01
     document.getElementById('startDate').value = '2021-01-01';

@@ -22,9 +22,21 @@
                 <h2 class="panel-title">⚙️ Configuration</h2>
 
                 <div class="form-group">
-                    <label>Therapeutic Area</label>
+                    <label>OpenAI API Key</label>
+                    <input type="password" id="apiKey"
+                           placeholder="sk-... (or set OPENAI_API_KEY env var)">
+                    <small class="form-hint">Leave blank if set in environment</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Therapeutic Area
+                        <button class="btn-inline" onclick="loadTAVocabs()" title="Show available TAs">
+                            📋
+                        </button>
+                    </label>
                     <input type="text" id="therapeuticArea" value="immunology/inflammation"
                            placeholder="e.g., immunology/inflammation">
+                    <small class="form-hint" id="taHint">Must match a config/ta_vocab/*.json file</small>
                 </div>
 
                 <div class="form-group">

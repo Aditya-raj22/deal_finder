@@ -27,6 +27,7 @@ pipeline_config: Dict[str, Any] = {}
 
 
 class PipelineConfig(BaseModel):
+    api_key: Optional[str] = None
     therapeutic_area: str
     sources: list[str] = ["FierceBiotech", "BioPharma Dive", "Endpoints", "BioSpace", "STAT", "BioCentury", "GEN"]
     stages: list[str] = ["preclinical", "phase 1", "first-in-human"]
@@ -86,8 +87,13 @@ def get_pipeline_status() -> dict:
         "total_steps": 6,
         "progress": 0,
         "stats": {},
-        "checkpoints": {}
+        "checkpoints": {},
+        "is_running": active_pipeline is not None and active_pipeline.poll() is None
     }
+
+    # If no pipeline is running and no active config, show idle
+    if not status["is_running"] and not pipeline_config:
+        return status
 
     # Check each checkpoint
     checkpoints = {
@@ -160,6 +166,13 @@ def get_pipeline_status() -> dict:
             "urls_fetched": len(fetch.get("fetched_urls", []))
         }
 
+    # Override to show starting if pipeline just started but no checkpoints yet
+    if status["is_running"] and status["progress"] == 0:
+        status["step"] = "starting"
+        status["step_number"] = 1
+        status["progress"] = 5
+        status["stats"] = {"status": "Initializing pipeline..."}
+
     return status
 
 
@@ -175,6 +188,27 @@ async def status():
     return get_pipeline_status()
 
 
+@app.get("/api/ta-vocabs")
+async def list_ta_vocabs():
+    """List available therapeutic area vocabularies."""
+    from pathlib import Path
+
+    ta_vocab_dir = Path("config/ta_vocab")
+    if not ta_vocab_dir.exists():
+        return {"vocabs": []}
+
+    vocabs = []
+    for vocab_file in ta_vocab_dir.glob("*.json"):
+        # Convert filename back to display format
+        ta_name = vocab_file.stem.replace("_", "/")
+        vocabs.append({
+            "name": ta_name,
+            "file": vocab_file.name
+        })
+
+    return {"vocabs": sorted(vocabs, key=lambda x: x["name"])}
+
+
 @app.post("/api/pipeline/start")
 async def start_pipeline(config: PipelineConfig):
     """Start the pipeline with given config."""
@@ -186,11 +220,28 @@ async def start_pipeline(config: PipelineConfig):
             status_code=400
         )
 
-    pipeline_config = config.dict()
+    # Validate API key
+    api_key = config.api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return JSONResponse(
+            {"error": "OpenAI API key required. Set OPENAI_API_KEY env var or provide in UI."},
+            status_code=400
+        )
 
-    # Create a temporary config file with UI settings
+    # Validate TA vocab exists
     import yaml
     from pathlib import Path
+
+    ta_normalized = config.therapeutic_area.replace("/", "_").replace(" ", "_")
+    ta_vocab_path = Path(f"config/ta_vocab/{ta_normalized}.json")
+
+    if not ta_vocab_path.exists():
+        return JSONResponse(
+            {"error": f"TA vocab file not found: {ta_vocab_path}. Available files: {', '.join([f.stem for f in Path('config/ta_vocab').glob('*.json')])}"},
+            status_code=400
+        )
+
+    pipeline_config = config.dict()
 
     # Load base config
     config_path = Path("config/config.yaml")
@@ -198,11 +249,14 @@ async def start_pipeline(config: PipelineConfig):
         base_config = yaml.safe_load(f)
 
     # Override with UI settings
-    base_config["THERAPEUTIC_AREA"] = config.therapeutic_area.replace("/", "_").replace(" ", "_")
+    base_config["THERAPEUTIC_AREA"] = ta_normalized
     base_config["EARLY_STAGE_ALLOWED"] = config.stages
     base_config["START_DATE"] = config.start_date
     if config.end_date:
         base_config["END_DATE"] = config.end_date
+
+    # Note: Sources filtering would need to be implemented in the crawler
+    # For now, this is just logged in the config
 
     # Write temporary config
     temp_config_path = Path("output/ui_config.yaml")
@@ -210,8 +264,9 @@ async def start_pipeline(config: PipelineConfig):
     with open(temp_config_path, 'w') as f:
         yaml.dump(base_config, f)
 
-    # Set environment variable for OpenAI key
+    # Set environment with API key
     env = os.environ.copy()
+    env["OPENAI_API_KEY"] = api_key
 
     # Build command - use temp config
     cmd = [
@@ -347,25 +402,35 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # If pipeline is running, send log updates
             if active_pipeline and active_pipeline.poll() is None:
-                # Read any available output (non-blocking)
+                # Read any available output (non-blocking, cross-platform)
                 try:
-                    import select
-                    if active_pipeline.stdout and select.select([active_pipeline.stdout], [], [], 0)[0]:
-                        line = active_pipeline.stdout.readline()
-                        if line:
-                            await websocket.send_json({
-                                "type": "log",
-                                "text": line.strip(),
-                                "level": "info"
-                            })
+                    import sys
+                    # Use select on Unix, simple non-blocking read attempt on Windows
+                    if sys.platform != 'win32':
+                        import select
+                        if active_pipeline.stdout and select.select([active_pipeline.stdout], [], [], 0)[0]:
+                            line = active_pipeline.stdout.readline()
+                            if line:
+                                await websocket.send_json({
+                                    "type": "log",
+                                    "text": line.strip(),
+                                    "level": "info"
+                                })
+                    else:
+                        # Windows: Try to read without blocking (may miss some logs)
+                        # In production, use threading or asyncio subprocess for Windows
+                        pass
                 except Exception:
                     pass  # Ignore read errors
             elif active_pipeline and active_pipeline.poll() is not None:
                 # Pipeline finished
+                exit_code = active_pipeline.poll()
                 await websocket.send_json({
                     "type": "pipeline_completed",
-                    "exit_code": active_pipeline.poll()
+                    "exit_code": exit_code
                 })
+                # Clear the active pipeline ref
+                active_pipeline = None
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
