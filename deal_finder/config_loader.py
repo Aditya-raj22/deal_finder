@@ -32,6 +32,7 @@ class Config(BaseModel):
     """Application configuration."""
 
     THERAPEUTIC_AREA: str
+    TA_VARIATIONS: Optional[list[str]] = Field(default=None)  # Generated keyword variations
     START_DATE: str = Field(default="2021-01-01")
     END_DATE: Optional[str] = None
     EARLY_STAGE_ALLOWED: list[str] = Field(
@@ -94,10 +95,26 @@ def load_config(config_path: str) -> Config:
 
 
 def load_ta_vocab(config: Config) -> dict[str, Any]:
-    """Load TA vocabulary."""
+    """Load TA vocabulary from file or generate from variations."""
+    # If TA_VARIATIONS is provided, use that instead of loading from file
+    if config.TA_VARIATIONS:
+        return {
+            "therapeutic_area": config.THERAPEUTIC_AREA,
+            "includes": config.TA_VARIATIONS,
+            "case_insensitive": True,
+            "excludes": [],
+            "synonyms": {},
+            "generated_from_keywords": True
+        }
+
+    # Otherwise, try to load from file (legacy behavior)
     vocab_path = config.ta_vocab_path
     if not vocab_path.exists():
-        raise FileNotFoundError(f"TA vocabulary not found: {vocab_path}")
+        # If no file and no variations, raise error
+        raise FileNotFoundError(
+            f"TA vocabulary not found: {vocab_path}. "
+            "Either provide a TA vocab file or use comma-separated keywords in the UI."
+        )
 
     with open(vocab_path, "r") as f:
         vocab = json.load(f)

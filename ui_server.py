@@ -13,6 +13,10 @@ import gzip
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -228,20 +232,34 @@ async def start_pipeline(config: PipelineConfig):
             status_code=400
         )
 
-    # Validate TA vocab exists
+    # Validate and process therapeutic area keywords
     import yaml
     from pathlib import Path
 
-    ta_normalized = config.therapeutic_area.replace("/", "_").replace(" ", "_")
-    ta_vocab_path = Path(f"config/ta_vocab/{ta_normalized}.json")
-
-    if not ta_vocab_path.exists():
+    # Parse comma-separated keywords
+    ta_keywords = [k.strip() for k in config.therapeutic_area.split(',') if k.strip()]
+    if not ta_keywords:
         return JSONResponse(
-            {"error": f"TA vocab file not found: {ta_vocab_path}. Available files: {', '.join([f.stem for f in Path('config/ta_vocab').glob('*.json')])}"},
+            {"error": "Therapeutic area keywords are required (comma-separated, 3+ chars each)"},
+            status_code=400
+        )
+
+    # Generate keyword variations (all prefixes >= 3 chars)
+    ta_variations = []
+    for keyword in ta_keywords:
+        if len(keyword) >= 3:
+            # Generate all prefixes from 3 chars to full length
+            for i in range(3, len(keyword) + 1):
+                ta_variations.append(keyword[:i].lower())
+
+    if not ta_variations:
+        return JSONResponse(
+            {"error": "At least one therapeutic area keyword must be 3+ characters"},
             status_code=400
         )
 
     pipeline_config = config.dict()
+    pipeline_config['ta_variations'] = ta_variations
 
     # Load base config
     config_path = Path("config/config.yaml")
@@ -249,7 +267,8 @@ async def start_pipeline(config: PipelineConfig):
         base_config = yaml.safe_load(f)
 
     # Override with UI settings
-    base_config["THERAPEUTIC_AREA"] = ta_normalized
+    base_config["THERAPEUTIC_AREA"] = config.therapeutic_area  # Keep as user input
+    base_config["TA_VARIATIONS"] = ta_variations  # Add generated variations
     base_config["EARLY_STAGE_ALLOWED"] = config.stages
     base_config["START_DATE"] = config.start_date
     if config.end_date:

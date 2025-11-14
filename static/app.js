@@ -53,8 +53,8 @@ function handleWebSocketMessage(message) {
             break;
         case 'pipeline_completed':
             const exitMsg = message.exit_code === 0 ?
-                '✓ Pipeline completed successfully!' :
-                `⚠ Pipeline exited with code ${message.exit_code}`;
+                'Pipeline completed successfully!' :
+                `Pipeline exited with code ${message.exit_code}`;
             logConsole(exitMsg, message.exit_code === 0 ? 'success' : 'error');
             updateButtons(false);
             loadOutputs();
@@ -79,10 +79,10 @@ function updateStatus(status) {
         systemStatus.textContent = '● IDLE';
         systemStatus.className = 'status-badge';
     } else if (status.step === 'completed') {
-        systemStatus.textContent = '✓ COMPLETED';
+        systemStatus.textContent = 'COMPLETED';
         systemStatus.className = 'status-badge';
     } else {
-        systemStatus.textContent = `◉ RUNNING: ${status.step.toUpperCase()}`;
+        systemStatus.textContent = `RUNNING: ${status.step.toUpperCase()}`;
         systemStatus.className = 'status-badge running';
     }
 
@@ -104,12 +104,12 @@ function updateStatus(status) {
 // Update step tracker
 function updateStepTracker(status) {
     const steps = [
-        { name: 'Crawling URLs', icon: '🔍' },
-        { name: 'Fetching Articles', icon: '📰' },
-        { name: 'Quick Filter (nano)', icon: '⚡' },
-        { name: 'Deduplication', icon: '🔄' },
-        { name: 'Extraction (gpt-4.1)', icon: '🤖' },
-        { name: 'Parsing Results', icon: '📊' }
+        { name: 'Crawling URLs', icon: '1' },
+        { name: 'Fetching Articles', icon: '2' },
+        { name: 'Quick Filter (nano)', icon: '3' },
+        { name: 'Deduplication', icon: '4' },
+        { name: 'Extraction (gpt-4.1)', icon: '5' },
+        { name: 'Parsing Results', icon: '6' }
     ];
 
     const stepTracker = document.getElementById('stepTracker');
@@ -125,8 +125,8 @@ function updateStepTracker(status) {
             stepDiv.classList.add('active');
         }
 
-        const icon = index < status.step_number - 1 ? '✓' :
-                     index === status.step_number - 1 ? '⟳' : step.icon;
+        const icon = index < status.step_number - 1 ? '[Done]' :
+                     index === status.step_number - 1 ? '[Active]' : step.icon;
 
         stepDiv.innerHTML = `
             <div class="step-icon">${icon}</div>
@@ -188,15 +188,15 @@ async function startPipeline() {
 
     // Validation
     if (!therapeuticArea) {
-        logConsole('❌ Error: Therapeutic area is required', 'error');
+        logConsole('Error: Therapeutic area is required', 'error');
         return;
     }
     if (stages.length === 0) {
-        logConsole('❌ Error: Select at least one development stage', 'error');
+        logConsole('Error: Select at least one development stage', 'error');
         return;
     }
     if (sources.length === 0) {
-        logConsole('❌ Error: Select at least one news source', 'error');
+        logConsole('Error: Select at least one news source', 'error');
         return;
     }
 
@@ -298,7 +298,7 @@ async function loadOutputs() {
                     <div class="output-meta">${modified.toLocaleString()} • ${sizeKB} KB</div>
                 </div>
                 <button class="output-download" onclick="downloadOutput('${file.name}')">
-                    ⬇ Download
+                    Download
                 </button>
             `;
 
@@ -345,7 +345,7 @@ function logConsole(text, level = 'info') {
 // Update connection status
 function updateConnectionStatus(connected) {
     const status = document.getElementById('connectionStatus');
-    status.textContent = connected ? '⚡ Connected' : '⚠ Disconnected';
+    status.textContent = connected ? 'Connected' : 'Disconnected';
     status.style.color = connected ? 'inherit' : '#8B1426';
 }
 

@@ -10,7 +10,7 @@
     <div class="container">
         <!-- Header -->
         <header class="header">
-            <h1 class="title">⚗️ DEAL FINDER</h1>
+            <h1 class="title">DEAL FINDER</h1>
             <p class="subtitle">Early-Stage Biotech Pipeline Monitor</p>
             <div class="status-badge" id="systemStatus">● IDLE</div>
         </header>
@@ -19,24 +19,24 @@
         <div class="grid">
             <!-- Configuration Panel -->
             <section class="panel config-panel">
-                <h2 class="panel-title">⚙️ Configuration</h2>
+                <h2 class="panel-title">Configuration</h2>
 
                 <div class="form-group">
-                    <label>OpenAI API Key</label>
+                    <label>OpenAI API Key (Optional)</label>
                     <input type="password" id="apiKey"
-                           placeholder="sk-... (or set OPENAI_API_KEY env var)">
-                    <small class="form-hint">Leave blank if set in environment</small>
+                           placeholder="Leave blank to use server's .env configuration">
+                    <small class="form-hint">API key is configured on the server - you can leave this blank</small>
                 </div>
 
                 <div class="form-group">
                     <label>Therapeutic Area
                         <button class="btn-inline" onclick="loadTAVocabs()" title="Show available TAs">
-                            📋
+                            List
                         </button>
                     </label>
-                    <input type="text" id="therapeuticArea" value="immunology/inflammation"
-                           placeholder="e.g., immunology/inflammation">
-                    <small class="form-hint" id="taHint">Must match a config/ta_vocab/*.json file</small>
+                    <input type="text" id="therapeuticArea" value="immunology, inflammation"
+                           placeholder="e.g., immunology, inflammation">
+                    <small class="form-hint" id="taHint">Enter comma-separated keywords (3+ chars each)</small>
                 </div>
 
                 <div class="form-group">
@@ -99,20 +99,20 @@
 
                 <div class="button-group">
                     <button id="startBtn" class="btn btn-primary" onclick="startPipeline()">
-                        ▶ START PIPELINE
+                        START PIPELINE
                     </button>
                     <button id="stopBtn" class="btn btn-danger" onclick="stopPipeline()" disabled>
-                        ⏹ STOP
+                        STOP
                     </button>
                     <button class="btn btn-secondary" onclick="clearCheckpoints()">
-                        🗑 Clear Checkpoints
+                        Clear Checkpoints
                     </button>
                 </div>
             </section>
 
             <!-- Progress Monitor -->
             <section class="panel progress-panel">
-                <h2 class="panel-title">📊 Progress Monitor</h2>
+                <h2 class="panel-title">Progress Monitor</h2>
 
                 <div class="progress-container">
                     <div class="progress-bar">
@@ -137,7 +137,7 @@
 
             <!-- Outputs Panel -->
             <section class="panel outputs-panel">
-                <h2 class="panel-title">📁 Outputs</h2>
+                <h2 class="panel-title">Outputs</h2>
 
                 <div id="outputsList" class="outputs-list">
                     <p class="empty-state">No outputs yet. Start a pipeline run to generate results.</p>
@@ -146,7 +146,7 @@
 
             <!-- Live Console -->
             <section class="panel console-panel">
-                <h2 class="panel-title">💻 System Logs</h2>
+                <h2 class="panel-title">System Logs</h2>
                 <div class="console" id="console">
                     <div class="console-line">
                         <span class="console-prompt">$</span>
@@ -162,7 +162,7 @@
             <span>●</span>
             <span>OpenAI GPT-4.1 Pipeline</span>
             <span>●</span>
-            <span id="connectionStatus">⚡ Connected</span>
+            <span id="connectionStatus">Connected</span>
         </footer>
     </div>
 
