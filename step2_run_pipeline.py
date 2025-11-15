@@ -168,7 +168,7 @@ def main():
 
     logger.info("✓ OpenAI API key found")
 
-    # STEP 1: Crawl sitemaps (ALL 7 SITES NOW!)
+    # STEP 1: Crawl sitemaps
     logger.info("\n" + "=" * 80)
 
     if args.skip_crawl:
