@@ -37,15 +37,23 @@ ENV/
 .coverage
 htmlcov/
 
-# Output
+# Output & Logs
 output/
+logs/
 *.xlsx
 *.jsonl
-logs/
+*.log
 
 # Config (sensitive)
 config/secrets.yaml
 .env
-.env
+.env.local
 .env.example
+
+# Temporary files
 CURRENT_STATUS.md
+archived/
+
+# OS files
+.DS_Store
+*.tmp

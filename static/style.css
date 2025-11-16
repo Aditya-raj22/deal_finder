@@ -175,8 +175,9 @@ input[type="date"]:focus {
 
 .ta-input-row {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
+    flex-wrap: nowrap;
 }
 
 .ta-input {
@@ -187,6 +188,7 @@ input[type="date"]:focus {
     font-family: 'Courier New', monospace;
     font-size: 1em;
     color: var(--text-dark);
+    transition: border-color 0.2s;
 }
 
 .ta-input:focus {
@@ -202,19 +204,29 @@ input[type="date"]:focus {
     font-family: 'Courier New', monospace;
     font-weight: bold;
     cursor: pointer;
-    font-size: 1em;
+    font-size: 0.95em;
+    letter-spacing: 0.5px;
+    transition: all 0.2s;
+    min-width: 45px;
 }
 
 .btn-remove-ta:hover {
     background: var(--danger);
     border-color: var(--crimson-dark);
     color: var(--cream);
+    transform: translate(-2px, -2px);
+    box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.btn-remove-ta:active {
+    transform: translate(0, 0);
+    box-shadow: none;
 }
 
 .btn-add-ta {
     padding: 10px 20px;
     background: var(--cream);
-    border: 3px solid var(--crimson);
+    border: 2px solid var(--crimson);
     color: var(--crimson);
     font-family: 'Courier New', monospace;
     font-weight: bold;
@@ -223,6 +235,7 @@ input[type="date"]:focus {
     letter-spacing: 1px;
     width: fit-content;
     transition: all 0.2s;
+    margin-top: 4px;
 }
 
 .btn-add-ta:hover {

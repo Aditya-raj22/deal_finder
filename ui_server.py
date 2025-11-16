@@ -269,7 +269,7 @@ async def start_pipeline(config: PipelineConfig):
 
     # Build command - use ChromaDB semantic pipeline (best accuracy + speed!)
     cmd = [
-        "python", "step2_run_pipeline_chroma.py",
+        "python", "run_pipeline.py",
         "--config", str(temp_config_path)
     ]
 

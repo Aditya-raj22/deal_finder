@@ -7,14 +7,14 @@ Get running with **95% accuracy** in 3 steps.
 ### 1. Install Dependencies
 
 ```bash
-pip install -r requirements_chroma.txt
+pip install -r requirements.txt
 ```
 
 ### 2. Build Cache (One-Time)
 
 ```bash
 # Takes 2-4 hours for 100k articles (first run only)
-python step1_build_cache_chroma.py --start-date 2021-01-01
+python build_cache.py --start-date 2021-01-01
 ```
 
 Creates `output/chroma_db/` with:
@@ -30,7 +30,7 @@ python ui_server.py
 # Then open: http://localhost:8000
 
 # Or directly
-python step2_run_pipeline_chroma.py --config config/config.yaml
+python run_pipeline.py --config config/config.yaml
 ```
 
 ## Daily Updates (Optional)
@@ -70,13 +70,13 @@ Runs daily at 2 AM, only fetches new articles (incremental).
 
 ```
 Cache (Background):
-  step1_build_cache_chroma.py
+  build_cache.py
   ├─ Crawl all biotech news
   ├─ Compute MPNet embeddings
   └─ Store in ChromaDB (300 MB for 100k articles)
 
 Query (User):
-  step2_run_pipeline_chroma.py
+  run_pipeline.py
   ├─ Semantic search (ChromaDB)
   ├─ OpenAI filter + extract
   └─ Excel export
@@ -146,8 +146,8 @@ ChromaDB should be fast (<2 sec). If slow:
 
 | File | Purpose |
 |------|---------|
-| `step1_build_cache_chroma.py` | Cache builder (daily cron) |
-| `step2_run_pipeline_chroma.py` | Query pipeline (user-triggered) |
+| `build_cache.py` | Cache builder (daily cron) |
+| `run_pipeline.py` | Query pipeline (user-triggered) |
 | `deal_finder/storage/article_cache_chroma.py` | ChromaDB interface |
 | `ui_server.py` | Web UI (auto-uses ChromaDB) |
 
