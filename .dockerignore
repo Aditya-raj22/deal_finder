@@ -49,12 +49,21 @@ tests/
 test_*.py
 *_test.py
 
-# Output & Logs
+# Output & Logs (588MB+ - MUST exclude)
+output
 output/
+logs
 logs/
 *.log
 *.xlsx
 *.jsonl
+*.json
+!config/*.json
+!config/**/*.json
+**/chroma_db
+**/chroma_db/
+*.sqlite3
+*_checkpoint.json
 
 # Git
 .git/
@@ -66,8 +75,21 @@ logs/
 .env.example
 config/secrets.yaml
 
+# Build & Deploy artifacts
+archived
+archived/
+scripts
+scripts/
+deploy
+deploy/
+
 # Misc
 .DS_Store
 *.pyc
 .dockerignore
 Dockerfile
+step*.py
+test_*.py
+*_test.py
+run_pipeline.py
+build_cache.py
