@@ -1,0 +1,186 @@
+"""Production pipeline with ChromaDB semantic filtering."""
+
+import gzip
+import json
+import logging
+from pathlib import Path
+from datetime import datetime, timezone
+from decimal import Decimal
+
+from deal_finder.config_loader import load_config, load_ta_vocab
+from deal_finder.storage.article_cache_chroma import ChromaArticleCache
+from deal_finder.extraction.openai_extractor import OpenAIExtractor
+from deal_finder.models import Deal
+from deal_finder.output import ExcelWriter
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+def run_pipeline(config_path="config/config.yaml"):
+    """Run pipeline with ChromaDB semantic search."""
+
+    logger.info("="*80)
+    logger.info("DEAL FINDER - ChromaDB Semantic Pipeline")
+    logger.info("="*80)
+
+    config = load_config(config_path)
+    ta_vocab = load_ta_vocab(config)
+
+    logger.info(f"TA: {config.THERAPEUTIC_AREA}")
+    logger.info(f"Date range: {config.START_DATE} to {config.end_date_resolved}")
+
+    # Initialize ChromaDB
+    cache = ChromaArticleCache(embedding_model="all-mpnet-base-v2")
+    stats = cache.get_stats()
+    logger.info(f"ChromaDB: {stats['total_articles']} articles")
+
+    # STEP 1: Semantic search (low threshold = no false negatives)
+    logger.info("\n" + "="*80)
+    logger.info("STEP 1: Semantic TA Filter (ChromaDB)")
+    logger.info("="*80)
+
+    # Build rich query from TA
+    query = f"{config.THERAPEUTIC_AREA} pharmaceutical biotechnology therapeutic deals"
+
+    # Get sources filter if available
+    sources_filter = getattr(config, 'NEWS_SOURCES', None)
+    if sources_filter:
+        logger.info(f"Filtering by sources: {', '.join(sources_filter)}")
+
+    articles = cache.search_articles_semantic(
+        query=query,
+        start_date=config.START_DATE,
+        end_date=config.end_date_resolved,
+        sources=sources_filter,
+        top_k=50000,  # No practical limit (most TAs have <10k matches)
+        similarity_threshold=0.20  # Low = minimize false negatives
+    )
+
+    logger.info(f"✓ Found {len(articles)} articles (threshold=0.20 for max recall)")
+
+    if not articles:
+        logger.warning("No articles found!")
+        return
+
+    # Convert to pipeline format
+    pipeline_articles = [{
+        'url': a['url'],
+        'title': a['title'],
+        'content': a['content_snippet'],
+        'published_date': a['published_date'],
+        'source': a['source']
+    } for a in articles]
+
+    # STEP 2: OpenAI extraction (with quick filter + dedup + full extraction)
+    logger.info("\n" + "="*80)
+    logger.info("STEP 2: OpenAI Extraction (Quick Filter + Dedup + Full)")
+    logger.info("="*80)
+
+    checkpoint = Path("output/extraction_checkpoint.json.gz")
+
+    if checkpoint.exists():
+        logger.info("Loading from checkpoint...")
+        with gzip.open(checkpoint, 'rt') as f:
+            extractions = json.load(f).get("extractions", [])
+        logger.info(f"✓ Loaded {len(extractions)} extractions")
+    else:
+        # Use MPNet model for dedup too (better than MiniLM)
+        extractor = OpenAIExtractor()
+        extractions = extractor.extract_batch(
+            pipeline_articles,
+            ta_vocab,
+            allowed_stages=config.EARLY_STAGE_ALLOWED
+        )
+
+        # Save checkpoint
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(checkpoint, 'wt') as f:
+            json.dump({
+                "extractions": extractions,
+                "articles": pipeline_articles,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }, f)
+        logger.info(f"✓ Saved {len(extractions)} extractions")
+
+    # STEP 3: Parse to Deal objects
+    logger.info("\n" + "="*80)
+    logger.info("STEP 3: Parse and Filter")
+    logger.info("="*80)
+
+    deals = []
+    rejected = []
+
+    for extraction in extractions:
+        if not extraction:
+            rejected.append({"reason": "null_extraction"})
+            continue
+
+        parsed = extractor.parse_extracted_deal(extraction, config.THERAPEUTIC_AREA)
+        if not parsed:
+            rejected.append({"reason": "parse_failed"})
+            continue
+
+        # Filter by stage
+        stage = parsed.get('stage', '').lower()
+        if not any(s.lower() in stage for s in config.EARLY_STAGE_ALLOWED):
+            rejected.append({"reason": "stage_filter", "stage": stage})
+            continue
+
+        # Convert to Deal model
+        try:
+            deal = Deal(
+                date_announced=datetime.fromisoformat(parsed['date_announced']).date() if parsed.get('date_announced') else None,
+                target=parsed.get('target'),
+                acquirer=parsed.get('acquirer'),
+                stage=parsed.get('stage'),
+                therapeutic_area=parsed.get('therapeutic_area'),
+                asset_focus=parsed.get('asset_focus'),
+                deal_type_detailed=parsed.get('deal_type'),
+                source_url=parsed.get('url'),
+                upfront_value_usd=Decimal(str(parsed['upfront_value_usd'])) if parsed.get('upfront_value_usd') else None,
+                contingent_payment_usd=Decimal(str(parsed['contingent_payment_usd'])) if parsed.get('contingent_payment_usd') else None,
+                total_deal_value_usd=Decimal(str(parsed['total_deal_value_usd'])) if parsed.get('total_deal_value_usd') else None,
+                geography=parsed.get('geography'),
+                key_evidence=parsed.get('key_evidence', ''),
+                confidence=parsed.get('confidence', 'medium')
+            )
+            deals.append(deal)
+        except Exception as e:
+            rejected.append({"reason": "model_error", "error": str(e)})
+
+    logger.info(f"✓ {len(deals)} deals extracted, {len(rejected)} rejected")
+
+    # STEP 4: Save to Excel
+    if deals:
+        logger.info("\n" + "="*80)
+        logger.info("STEP 4: Save to Excel")
+        logger.info("="*80)
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output = Path("output") / f"deals_{config.THERAPEUTIC_AREA}_{timestamp}.xlsx"
+        output.parent.mkdir(exist_ok=True)
+
+        ExcelWriter().write(deals, str(output))
+        logger.info(f"✓ Saved to {output}")
+
+    # Save parsing checkpoint
+    with gzip.open("output/parsing_checkpoint.json.gz", 'wt') as f:
+        json.dump({
+            "extracted_deals": [d.__dict__ for d in deals],
+            "extraction_rejected": rejected,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }, f)
+
+    logger.info("\n" + "="*80)
+    logger.info(f"COMPLETE! {len(deals)} deals found")
+    logger.info("="*80)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config/config.yaml")
+    args = parser.parse_args()
+
+    run_pipeline(args.config)

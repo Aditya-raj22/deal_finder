@@ -36,11 +36,11 @@ def deduplicate_by_title(articles: list) -> list:
     if not articles:
         return articles
 
-    # Load model once and cache it (8-40 sec savings on subsequent calls)
+    # Load better model once and cache it (all-mpnet-base-v2 for best accuracy)
     if _SENTENCE_TRANSFORMER_MODEL is None:
-        logger.info("Loading sentence transformer model (cached for future use)...")
+        logger.info("Loading sentence transformer model all-mpnet-base-v2 (best accuracy)...")
         from sentence_transformers import SentenceTransformer
-        _SENTENCE_TRANSFORMER_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+        _SENTENCE_TRANSFORMER_MODEL = SentenceTransformer('all-mpnet-base-v2')
     else:
         logger.info("Using cached sentence transformer model...")
 
@@ -188,7 +188,8 @@ class OpenAIExtractor:
     def extract_batch(
         self,
         articles: List[dict],
-        ta_vocab: dict
+        ta_vocab: dict,
+        allowed_stages: List[str] = None
     ) -> List[Optional[dict]]:
         """Extract deals with two-pass filtering, deduplication, and parallel processing.
 
@@ -199,6 +200,7 @@ class OpenAIExtractor:
         Args:
             articles: List of dicts with keys: url, title, content
             ta_vocab: Therapeutic area vocabulary
+            allowed_stages: List of allowed development stages (e.g., ["preclinical", "phase 1"])
 
         Returns:
             List of extracted deal dicts (None for rejected articles)
@@ -207,6 +209,7 @@ class OpenAIExtractor:
             return []
 
         therapeutic_area = ta_vocab.get("therapeutic_area", "biotech")
+        allowed_stages = allowed_stages or ["preclinical", "phase 1", "first-in-human"]
 
         # Check for existing quick filter checkpoint
         from pathlib import Path
@@ -225,7 +228,7 @@ class OpenAIExtractor:
         else:
             # PASS 1: Quick filter
             logger.info(f"Pass 1: Quick filtering {len(articles)} articles...")
-            passed_articles = self._quick_filter(articles, therapeutic_area)
+            passed_articles = self._quick_filter(articles, therapeutic_area, allowed_stages)
             logger.info(f"Pass 1 results: {len(passed_articles)}/{len(articles)} passed quick filter")
 
             # Save quick filter checkpoint
@@ -271,7 +274,7 @@ class OpenAIExtractor:
 
         # PASS 2: Full extraction (parallel)
         logger.info(f"Pass 2: Full extraction on {len(deduped_articles)} articles (parallel)...")
-        extractions = self._parallel_extract(deduped_articles, ta_vocab)
+        extractions = self._parallel_extract(deduped_articles, ta_vocab, allowed_stages)
 
         # Map results back to original articles
         extraction_map = {e["url"]: e for e in extractions if e and isinstance(e, dict) and "url" in e}
@@ -291,7 +294,8 @@ class OpenAIExtractor:
     def _quick_filter(
         self,
         articles: List[dict],
-        therapeutic_area: str
+        therapeutic_area: str,
+        allowed_stages: List[str]
     ) -> List[dict]:
         """Quick filter using consensus voting prompt + 1000 chars.
 
@@ -300,19 +304,23 @@ class OpenAIExtractor:
         """
         passed = []
 
+        # Format allowed stages for prompt
+        stages_text = ", ".join(allowed_stages)
+        not_allowed = "Any stages NOT in this list (e.g., if 'phase 2' is not selected, reject phase 2 deals)"
+
         # Process in batches using GPT-3.5-turbo (cheap and fast)
         for i in range(0, len(articles), self.quick_filter_batch):
             batch = articles[i:i + self.quick_filter_batch]
 
-            prompt = f"""For each article below, determine if it describes an EARLY-STAGE deal in {therapeutic_area}.
+            prompt = f"""For each article below, determine if it describes a deal in {therapeutic_area} at the RIGHT development stage.
 
 PASS if ALL conditions are met:
 1. Article describes a business deal (M&A, partnership, licensing, collaboration)
 2. Deal is related to {therapeutic_area} (Oncology is OK if {therapeutic_area}-related)
-3. PRIMARY asset is BEFORE Phase 2 (preclinical, discovery, phase 1, IND-enabling, research-stage)
+3. PRIMARY asset development stage is ONE OF: {stages_text}
 
 REJECT if:
-- Primary asset is Phase 2, Phase 3, approved, or marketed
+- Development stage is NOT in the allowed list: {not_allowed}
 - Not a deal (just news, research results, opinion)
 - Wrong therapeutic area
 
@@ -380,7 +388,8 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
     def _parallel_extract(
         self,
         articles: List[dict],
-        ta_vocab: dict
+        ta_vocab: dict,
+        allowed_stages: List[str]
     ) -> List[dict]:
         """Extract deals with checkpointing every 250 articles.
 
@@ -414,7 +423,7 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
         for batch_idx, batch in enumerate(batches):
             try:
                 # Process this batch
-                results = self._extract_batch_structured(batch, ta_vocab)
+                results = self._extract_batch_structured(batch, ta_vocab, allowed_stages)
                 all_results.extend(results)
 
                 # Current total processed
@@ -463,7 +472,8 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
     def _extract_batch_structured(
         self,
         articles: List[dict],
-        ta_vocab: dict
+        ta_vocab: dict,
+        allowed_stages: List[str]
     ) -> List[dict]:
         """Extract a batch using structured outputs.
 
@@ -472,11 +482,16 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
         """
         therapeutic_area = ta_vocab.get("therapeutic_area", "biotech")
         ta_includes = ta_vocab.get("includes", [])
+        stages_text = ", ".join(allowed_stages)
+        not_allowed = "Any stages NOT in this list should be REJECTED"
 
         prompt = f"""Extract {therapeutic_area}-related business deal information from these articles.
 
 TARGET THERAPEUTIC AREA: {therapeutic_area}
 Include terms: {', '.join(ta_includes[:20])}
+
+ALLOWED DEVELOPMENT STAGES: {stages_text}
+REJECT if stage is NOT in the allowed list: {not_allowed}
 
 For each article, extract:
 - parties (acquirer, target) - extract what's mentioned, use null if not found
@@ -490,15 +505,16 @@ For each article, extract:
 - confidence (high/medium/low)
 - key_evidence (brief quote from article)
 
-CRITICAL REJECTION RULE:
-- REJECT (return null) if the PRIMARY ASSET is Phase 2, Phase 2+, Phase 3, Phase 4, approved, marketed, or commercial
+CRITICAL STAGE FILTERING:
+- ONLY extract deals where the PRIMARY asset stage is in the allowed list: {stages_text}
+- REJECT (return null) if the PRIMARY asset stage is NOT in the allowed list
+- Prioritize deals in allowed stages
 
 IMPORTANT:
 - Only extract information EXPLICITLY stated in the article
 - Use null for fields not found - DO NOT infer or guess
 - If only one party is mentioned, extract it and use null for the other
 - If article mentions multiple assets at different stages, focus on the PRIMARY asset being transacted
-- Always try to extract early-stage deals - only return null if clearly phase 2+ or NOT a business deal
 
 """
         for i, article in enumerate(articles, 1):

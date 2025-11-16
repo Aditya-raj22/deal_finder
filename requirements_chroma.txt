@@ -1,0 +1,16 @@
+# Core dependencies
+chromadb>=0.4.22
+sentence-transformers>=2.2.0
+
+# Existing dependencies (keep these)
+openai>=1.0.0
+pydantic>=2.0.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+pyyaml>=6.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+openpyxl>=3.1.0

@@ -31,12 +31,9 @@ pipeline_config: Dict[str, Any] = {}
 
 
 class PipelineConfig(BaseModel):
-    api_key: Optional[str] = None
-    therapeutic_area: str
+    therapeutic_areas: list[str]
     sources: list[str] = ["FierceBiotech", "BioPharma Dive", "Endpoints", "BioSpace", "STAT", "BioCentury", "GEN"]
     stages: list[str] = ["preclinical", "phase 1", "first-in-human"]
-    start_date: str = "2021-01-01"
-    end_date: Optional[str] = None
 
 
 class ConnectionManager:
@@ -194,23 +191,10 @@ async def status():
 
 @app.get("/api/ta-vocabs")
 async def list_ta_vocabs():
-    """List available therapeutic area vocabularies."""
-    from pathlib import Path
-
-    ta_vocab_dir = Path("config/ta_vocab")
-    if not ta_vocab_dir.exists():
-        return {"vocabs": []}
-
-    vocabs = []
-    for vocab_file in ta_vocab_dir.glob("*.json"):
-        # Convert filename back to display format
-        ta_name = vocab_file.stem.replace("_", "/")
-        vocabs.append({
-            "name": ta_name,
-            "file": vocab_file.name
-        })
-
-    return {"vocabs": sorted(vocabs, key=lambda x: x["name"])}
+    """List available therapeutic area vocabularies (legacy endpoint - kept for compatibility)."""
+    # TA keywords are now specified directly in UI, no vocab files needed
+    # This endpoint is kept for backward compatibility but returns empty list
+    return {"vocabs": []}
 
 
 @app.post("/api/pipeline/start")
@@ -224,11 +208,11 @@ async def start_pipeline(config: PipelineConfig):
             status_code=400
         )
 
-    # Validate API key
-    api_key = config.api_key or os.getenv("OPENAI_API_KEY")
+    # Validate API key from environment
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return JSONResponse(
-            {"error": "OpenAI API key required. Set OPENAI_API_KEY env var or provide in UI."},
+            {"error": "OpenAI API key not found. Set OPENAI_API_KEY in .env file."},
             status_code=400
         )
 
@@ -236,30 +220,31 @@ async def start_pipeline(config: PipelineConfig):
     import yaml
     from pathlib import Path
 
-    # Parse comma-separated keywords
-    ta_keywords = [k.strip() for k in config.therapeutic_area.split(',') if k.strip()]
+    ta_keywords = [k.strip() for k in config.therapeutic_areas if k.strip()]
     if not ta_keywords:
         return JSONResponse(
-            {"error": "Therapeutic area keywords are required (comma-separated, 3+ chars each)"},
+            {"error": "Enter at least one therapeutic area/indication"},
+            status_code=400
+        )
+
+    # Validate keyword length (3+ chars)
+    short_keywords = [k for k in ta_keywords if len(k) < 3]
+    if short_keywords:
+        return JSONResponse(
+            {"error": f"Keywords must be 3+ characters: {', '.join(short_keywords)}"},
             status_code=400
         )
 
     # Generate keyword variations (all prefixes >= 3 chars)
     ta_variations = []
     for keyword in ta_keywords:
-        if len(keyword) >= 3:
-            # Generate all prefixes from 3 chars to full length
-            for i in range(3, len(keyword) + 1):
-                ta_variations.append(keyword[:i].lower())
-
-    if not ta_variations:
-        return JSONResponse(
-            {"error": "At least one therapeutic area keyword must be 3+ characters"},
-            status_code=400
-        )
+        # Generate all prefixes from 3 chars to full length
+        for i in range(3, len(keyword) + 1):
+            ta_variations.append(keyword[:i].lower())
 
     pipeline_config = config.dict()
     pipeline_config['ta_variations'] = ta_variations
+    pipeline_config['ta_keywords'] = ta_keywords
 
     # Load base config
     config_path = Path("config/config.yaml")
@@ -267,15 +252,10 @@ async def start_pipeline(config: PipelineConfig):
         base_config = yaml.safe_load(f)
 
     # Override with UI settings
-    base_config["THERAPEUTIC_AREA"] = config.therapeutic_area  # Keep as user input
-    base_config["TA_VARIATIONS"] = ta_variations  # Add generated variations
+    base_config["THERAPEUTIC_AREA"] = ", ".join(ta_keywords)
+    base_config["TA_VARIATIONS"] = ta_variations
     base_config["EARLY_STAGE_ALLOWED"] = config.stages
-    base_config["START_DATE"] = config.start_date
-    if config.end_date:
-        base_config["END_DATE"] = config.end_date
-
-    # Note: Sources filtering would need to be implemented in the crawler
-    # For now, this is just logged in the config
+    base_config["NEWS_SOURCES"] = config.sources  # Add source filtering
 
     # Write temporary config
     temp_config_path = Path("output/ui_config.yaml")
@@ -287,9 +267,9 @@ async def start_pipeline(config: PipelineConfig):
     env = os.environ.copy()
     env["OPENAI_API_KEY"] = api_key
 
-    # Build command - use temp config
+    # Build command - use ChromaDB semantic pipeline (best accuracy + speed!)
     cmd = [
-        "python", "step2_run_pipeline.py",
+        "python", "step2_run_pipeline_chroma.py",
         "--config", str(temp_config_path)
     ]
 

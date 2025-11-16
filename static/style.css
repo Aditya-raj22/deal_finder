@@ -164,6 +164,79 @@ input[type="date"]:focus {
     font-style: italic;
 }
 
+/* Therapeutic Area Dynamic Inputs */
+.ta-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    margin-bottom: 12px;
+}
+
+.ta-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ta-input {
+    flex: 1;
+    padding: 10px;
+    background: var(--cream);
+    border: 2px solid var(--border);
+    font-family: 'Courier New', monospace;
+    font-size: 1em;
+    color: var(--text-dark);
+}
+
+.ta-input:focus {
+    outline: none;
+    border-color: var(--crimson);
+}
+
+.btn-remove-ta {
+    padding: 10px 16px;
+    background: var(--cream);
+    border: 2px solid var(--crimson);
+    color: var(--crimson);
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 1em;
+}
+
+.btn-remove-ta:hover {
+    background: var(--danger);
+    border-color: var(--crimson-dark);
+    color: var(--cream);
+}
+
+.btn-add-ta {
+    padding: 10px 20px;
+    background: var(--cream);
+    border: 3px solid var(--crimson);
+    color: var(--crimson);
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 0.95em;
+    letter-spacing: 1px;
+    width: fit-content;
+    transition: all 0.2s;
+}
+
+.btn-add-ta:hover {
+    background: var(--crimson);
+    color: var(--cream);
+    transform: translate(-2px, -2px);
+    box-shadow: 4px 4px 0 var(--shadow);
+}
+
+.btn-add-ta:active {
+    transform: translate(0, 0);
+    box-shadow: none;
+}
+
 .date-separator {
     display: inline-block;
     margin: 0 10px;

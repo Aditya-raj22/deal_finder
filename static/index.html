@@ -22,21 +22,19 @@
                 <h2 class="panel-title">Configuration</h2>
 
                 <div class="form-group">
-                    <label>OpenAI API Key (Optional)</label>
-                    <input type="password" id="apiKey"
-                           placeholder="Leave blank to use server's .env configuration">
-                    <small class="form-hint">API key is configured on the server - you can leave this blank</small>
-                </div>
-
-                <div class="form-group">
-                    <label>Therapeutic Area
-                        <button class="btn-inline" onclick="loadTAVocabs()" title="Show available TAs">
-                            List
-                        </button>
-                    </label>
-                    <input type="text" id="therapeuticArea" value="immunology, inflammation"
-                           placeholder="e.g., immunology, inflammation">
-                    <small class="form-hint" id="taHint">Enter comma-separated keywords (3+ chars each)</small>
+                    <label>Therapeutic Area / Indication</label>
+                    <small class="form-hint">One indication word per box (no abbreviations). Keywords auto-expand for comprehensive search.</small>
+                    <div id="taContainer" class="ta-container">
+                        <div class="ta-input-row">
+                            <input type="text" class="ta-input" placeholder="e.g., immunology">
+                            <button type="button" class="btn-remove-ta" onclick="removeTABox(this)">−</button>
+                        </div>
+                        <div class="ta-input-row">
+                            <input type="text" class="ta-input" placeholder="e.g., inflammation">
+                            <button type="button" class="btn-remove-ta" onclick="removeTABox(this)">−</button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-add-ta" onclick="addTABox()">+ Add Indication</button>
                 </div>
 
                 <div class="form-group">
@@ -88,13 +86,6 @@
                             <input type="checkbox" value="GEN" class="source-checkbox" checked> GEN
                         </label>
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Date Range</label>
-                    <input type="date" id="startDate" value="2021-01-01">
-                    <span class="date-separator">to</span>
-                    <input type="date" id="endDate" placeholder="today">
                 </div>
 
                 <div class="button-group">
