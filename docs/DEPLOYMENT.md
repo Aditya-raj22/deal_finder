@@ -23,7 +23,7 @@ Your Deal Finder app has two components:
    - Go to [railway.app](https://railway.app)
    - Click "New Project" → "Deploy from GitHub repo"
    - Select your `deal_finder` repository
-   - Railway auto-detects `deploy/railway.json` and deploys
+   - Railway auto-detects `railway.json` and deploys
    - Add environment variable: `OPENAI_API_KEY=your-key-here`
 
 3. **Your app is live!**
@@ -51,7 +51,7 @@ If you want to separate frontend and backend:
    vercel
    ```
    - Point to project root
-   - Vercel reads `deploy/vercel.json` configuration
+   - Vercel reads `vercel.json` from deploy/ folder
 
 3. **Backend on Railway** (same as above)
 

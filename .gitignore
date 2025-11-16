@@ -1,3 +1,10 @@
+# Misc
+.DS_Store
+CLOUD_DEPLOYMENT.md
+PRODUCTION_SETUP.md
+final_pipeline.log
+docs/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -37,23 +44,15 @@ ENV/
 .coverage
 htmlcov/
 
-# Output & Logs
+# Output
 output/
-logs/
 *.xlsx
 *.jsonl
-*.log
+logs/
 
 # Config (sensitive)
 config/secrets.yaml
 .env
-.env.local
+.env
 .env.example
-
-# Temporary files
 CURRENT_STATUS.md
-archived/
-
-# OS files
-.DS_Store
-*.tmp
