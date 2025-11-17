@@ -188,7 +188,7 @@ function addTABox() {
 
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
-    removeBtn.className = 'btn-remove-ta';
+    removeBtn.className = 'btn-inline btn-remove-ta';
     removeBtn.textContent = '−';
     removeBtn.onclick = function() { removeTABox(this); };
 

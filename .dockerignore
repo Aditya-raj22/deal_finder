@@ -49,21 +49,16 @@ tests/
 test_*.py
 *_test.py
 
-# Output & Logs (588MB+ - MUST exclude)
-output
-output/
+# Output & Logs - exclude large checkpoints but KEEP chroma_db
 logs
 logs/
 *.log
 *.xlsx
 *.jsonl
-*.json
-!config/*.json
-!config/**/*.json
-**/chroma_db
-**/chroma_db/
-*.sqlite3
 *_checkpoint.json
+# Keep chroma_db for Railway deployment
+!output/chroma_db/
+!output/chroma_db/**
 
 # Git
 .git/
@@ -91,5 +86,4 @@ Dockerfile
 step*.py
 test_*.py
 *_test.py
-run_pipeline.py
-build_cache.py
+# build_cache.py - included for Railway crawling

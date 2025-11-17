@@ -90,13 +90,16 @@ class ExhaustiveSiteCrawler:
                 'https://www.biospace.com/rss',
             ],
             'sitemap': 'https://www.biospace.com/sitemap.xml',
-            'max_subsitemaps': 50,
+            'max_subsitemaps': 200,  # Fetch all sitemaps (has ~193 total)
         },
         'PRNewswire': {
             'rss_feeds': [
                 'https://www.prnewswire.com/rss/health-care-hospitals-latest-news/health-care-latest-news-list.rss',
             ],
-            # No comprehensive sitemap available - RSS only
+            'sitemap': 'https://www.prnewswire.com/sitemap-gz.xml',
+            'skip_old_archives': True,
+            'min_archive_year': 2021,
+            'max_subsitemaps': 200,  # Has 179 total, ~60 from 2021+ after filtering
         },
         'STAT': {
             'rss_feeds': [
@@ -315,7 +318,7 @@ class ExhaustiveSiteCrawler:
                 max_sitemaps = site_config.get('max_subsitemaps', 10) if site_config else 10
                 total_sitemaps = len(sitemap_locs)
 
-                # Filter out old BioPharma Dive archives if configured
+                # Filter out old archives if configured
                 if site_config and site_config.get('skip_old_archives') and site_config.get('min_archive_year'):
                     min_year = site_config['min_archive_year']
                     filtered_locs = []
@@ -325,9 +328,11 @@ class ExhaustiveSiteCrawler:
                         if 'sitemap-topics' in url or 'sitemap-footer' in url:
                             logger.info(f"  Skipping non-article sitemap: {url}")
                             continue
-                        # Check for year in URL (e.g., sitemap-2016-01.xml)
-                        import re
-                        year_match = re.search(r'sitemap-(\d{4})', url)
+                        # Check for year in URL - multiple patterns:
+                        # BioPharma Dive: sitemap-2016-01.xml
+                        # PRNewswire: Sitemap_Index_Jan_2021.xml.gz
+                        year_match = re.search(r'sitemap-(\d{4})', url, re.IGNORECASE) or \
+                                     re.search(r'_(\d{4})\.xml', url)
                         if year_match:
                             year = int(year_match.group(1))
                             if year < min_year:
@@ -345,7 +350,7 @@ class ExhaustiveSiteCrawler:
                     logger.info(f"  Fetching sub-sitemap {i}/{len(sitemap_locs)}: {sitemap_loc.text}")
                     sub_articles = self._fetch_sitemap(sitemap_loc.text, site_name, site_config)  # Recursive
                     articles.extend(sub_articles)
-                    time.sleep(1)  # Reduced rate limiting (reusing browser)
+                    time.sleep(1)  # Rate limiting - already reduced
 
                 if len(sitemap_locs) < total_sitemaps:
                     logger.info(f"  Skipped {total_sitemaps - len(sitemap_locs)} sub-sitemaps")
@@ -439,7 +444,7 @@ class ExhaustiveSiteCrawler:
                 max_sitemaps = site_config.get('max_subsitemaps', 10) if site_config else 10
                 total_sitemaps = len(sitemap_locs)
 
-                # Filter out old BioPharma Dive archives if configured
+                # Filter out old archives if configured
                 if site_config and site_config.get('skip_old_archives') and site_config.get('min_archive_year'):
                     min_year = site_config['min_archive_year']
                     filtered_locs = []
@@ -449,8 +454,11 @@ class ExhaustiveSiteCrawler:
                         if 'sitemap-topics' in url or 'sitemap-footer' in url:
                             logger.info(f"  Skipping non-article sitemap: {url}")
                             continue
-                        # Check for year in URL (e.g., sitemap-2016-01.xml)
-                        year_match = re.search(r'sitemap-(\d{4})', url)
+                        # Check for year in URL - multiple patterns:
+                        # BioPharma Dive: sitemap-2016-01.xml
+                        # PRNewswire: Sitemap_Index_Jan_2021.xml.gz
+                        year_match = re.search(r'sitemap-(\d{4})', url, re.IGNORECASE) or \
+                                     re.search(r'_(\d{4})\.xml', url)
                         if year_match:
                             year = int(year_match.group(1))
                             if year < min_year:
@@ -468,7 +476,7 @@ class ExhaustiveSiteCrawler:
                     logger.info(f"  Fetching sub-sitemap {i}/{len(sitemap_locs)}: {sitemap_loc.text}")
                     sub_articles = self._fetch_sitemap(sitemap_loc.text, site_name, site_config)
                     articles.extend(sub_articles)
-                    time.sleep(2)  # Rate limiting - be respectful
+                    time.sleep(1)  # Rate limiting - reduced from 2s
 
                 if len(sitemap_locs) < total_sitemaps:
                     logger.info(f"  Skipped {total_sitemaps - len(sitemap_locs)} sub-sitemaps")
@@ -649,30 +657,51 @@ class ExhaustiveSiteCrawler:
         return articles
 
     def crawl_all_sites(self) -> List[dict]:
-        """Exhaustively crawl ALL priority sites with incremental support.
+        """Exhaustively crawl ALL priority sites IN PARALLEL with incremental support.
 
         Returns:
             List of NEW articles (not previously crawled if index enabled)
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from threading import Lock
+
         all_articles = []
         seen_urls = set()
+        lock = Lock()
 
-        for site_name in self.PRIORITY_SITES.keys():
+        def crawl_site_wrapper(site_name):
+            """Wrapper to crawl a single site (thread-safe)."""
             articles = self.crawl_site(site_name)
+            return site_name, articles
 
-            # Filter for new URLs if index enabled
+        # Crawl all sites in parallel (one thread per source)
+        logger.info(f"Crawling {len(self.PRIORITY_SITES)} sites in parallel...")
+        site_results = {}
+
+        with ThreadPoolExecutor(max_workers=len(self.PRIORITY_SITES)) as executor:
+            futures = {executor.submit(crawl_site_wrapper, site_name): site_name
+                      for site_name in self.PRIORITY_SITES.keys()}
+
+            for future in as_completed(futures):
+                site_name, articles = future.result()
+                site_results[site_name] = articles
+                logger.info(f"✓ {site_name} complete: {len(articles)} URLs discovered")
+
+        # Process results (dedup and filter for new URLs)
+        for site_name, articles in site_results.items():
             if self.use_index:
                 new_articles = []
                 for article in articles:
                     url = article['url']
-                    if not self.url_index.is_crawled(url) and url not in seen_urls:
-                        seen_urls.add(url)
-                        new_articles.append(article)
-                        # Mark as crawled immediately (will be saved at end)
-                        self.url_index.mark_crawled(url, {
-                            'source': site_name,
-                            'published_date': article.get('published_date')
-                        })
+                    with lock:
+                        if not self.url_index.is_crawled(url) and url not in seen_urls:
+                            seen_urls.add(url)
+                            new_articles.append(article)
+                            # Mark as crawled immediately (will be saved at end)
+                            self.url_index.mark_crawled(url, {
+                                'source': site_name,
+                                'published_date': article.get('published_date')
+                            })
 
                 logger.info(f"{site_name}: {len(new_articles)} new URLs (out of {len(articles)} total)")
                 all_articles.extend(new_articles)
@@ -680,11 +709,10 @@ class ExhaustiveSiteCrawler:
                 # No index - return all articles
                 for article in articles:
                     url = article['url']
-                    if url not in seen_urls:
-                        seen_urls.add(url)
-                        all_articles.append(article)
-
-            time.sleep(3)  # Rate limiting between sites
+                    with lock:
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            all_articles.append(article)
 
         # Save updated index
         if self.use_index:

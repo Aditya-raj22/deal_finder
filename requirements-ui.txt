@@ -1,0 +1,8 @@
+# Minimal dependencies for UI server only (Railway deployment)
+# Full ML dependencies are in requirements.txt for local pipeline execution
+
+fastapi==0.121.2
+uvicorn[standard]==0.38.0
+pydantic==2.12.4
+python-dotenv==1.2.1
+PyYAML==6.0.3

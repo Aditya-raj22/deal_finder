@@ -266,7 +266,7 @@ class ChromaArticleCache:
         return {
             "total_articles": total_articles,
             "by_source": by_source,
-            "embedding_model": self.embedding_function._model_name,
+            "embedding_model": getattr(self.embedding_function, '_model_name', getattr(self.embedding_function, 'model_name', 'unknown')),
             "collection_name": self.collection.name
         }
 
