@@ -44,8 +44,14 @@ ENV/
 .coverage
 htmlcov/
 
-# Output
-output/
+# Output (ignore output files but keep Python modules)
+output/*.db
+output/*.xlsx
+output/*.jsonl
+output/*.json
+output/*.json.gz
+output/*.yaml
+output/chroma_db/
 *.xlsx
 *.jsonl
 logs/
