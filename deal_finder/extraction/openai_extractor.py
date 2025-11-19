@@ -340,7 +340,7 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
             try:
                 # Use retry wrapper for API call
                 response = self._api_call_with_retry(
-                    model="gpt-4.1-nano-2025-04-14",
+                    model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "You are a precise biotech deal filter. Return only JSON."},
                         {"role": "user", "content": prompt}
@@ -548,7 +548,7 @@ IMPORTANT:
         try:
             # Use retry wrapper for API call
             response = self._api_call_with_retry(
-                model="gpt-4.1-2025-04-14",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are a precise biotech deal extractor. Return valid JSON only."},
                     {"role": "user", "content": prompt}

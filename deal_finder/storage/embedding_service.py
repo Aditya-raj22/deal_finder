@@ -136,9 +136,9 @@ class EmbeddingService:
                 last_checkpoint_time = time.time()
 
             # Show per-batch progress for visibility
+            rate = f"({len(articles)/batch_time:.1f} articles/sec)" if batch_time > 0 else "(instant)"
             logger.info(
-                f"  Batch {processed//batch_size}: {len(articles)} articles in {batch_time:.1f}s "
-                f"({len(articles)/batch_time:.1f} articles/sec)"
+                f"  Batch {processed//batch_size}: {len(articles)} articles in {batch_time:.1f}s {rate}"
             )
 
         logger.info(

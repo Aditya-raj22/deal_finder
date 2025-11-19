@@ -217,8 +217,9 @@ def run_pipeline(config_path="config/config.yaml"):
 
     # Save parsing checkpoint
     with gzip.open("output/parsing_checkpoint.json.gz", 'wt') as f:
+        # Use model_dump to handle Decimal, date, and other non-JSON types
         json.dump({
-            "extracted_deals": [d.__dict__ for d in deals],
+            "extracted_deals": [d.model_dump(mode='json') for d in deals],
             "extraction_rejected": rejected,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }, f)

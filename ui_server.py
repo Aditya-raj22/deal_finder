@@ -242,7 +242,7 @@ async def start_pipeline(config: PipelineConfig):
         for i in range(3, len(keyword) + 1):
             ta_variations.append(keyword[:i].lower())
 
-    pipeline_config = config.dict()
+    pipeline_config = config.model_dump()
     pipeline_config['ta_variations'] = ta_variations
     pipeline_config['ta_keywords'] = ta_keywords
 
