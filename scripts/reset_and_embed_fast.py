@@ -47,8 +47,8 @@ def reset_and_embed(
     conn = content_cache.conn
     cursor = conn.execute("""
         UPDATE articles
-        SET status = 'pending', error_message = NULL
-        WHERE status IN ('embedded', 'failed')
+        SET embedding_status = 'pending', error_message = NULL, embedded_at = NULL
+        WHERE embedding_status IN ('embedded', 'failed')
     """)
     reset_count = cursor.rowcount
     conn.commit()
