@@ -192,10 +192,14 @@ class ChromaArticleCache:
         if sources:
             where_filter = {"source": {"$in": sources}}
 
-        # Query ChromaDB (get more results since we'll filter dates post-query)
+        # Query ChromaDB
+        # Use min() to avoid ChromaDB SQL variable limit (max ~32K for SQLite)
+        # Most searches need <10K results anyway
+        max_results = min(top_k * 3, 10000)  # Get 3x for date filtering, cap at 10K
+
         results = self.collection.query(
             query_texts=[query],
-            n_results=top_k * 2,  # Get 2x results to account for date filtering
+            n_results=max_results,
             where=where_filter,
             include=["documents", "metadatas", "distances"]
         )
