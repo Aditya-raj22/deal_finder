@@ -194,8 +194,8 @@ class ChromaArticleCache:
 
         # Query ChromaDB
         # Use min() to avoid ChromaDB SQL variable limit (max ~32K for SQLite)
-        # Most searches need <10K results anyway
-        max_results = min(top_k * 3, 10000)  # Get 3x for date filtering, cap at 10K
+        # Cap at 20K to balance coverage vs SQL limits
+        max_results = min(top_k * 3, 20000)  # Get 3x for date filtering, cap at 20K
 
         results = self.collection.query(
             query_texts=[query],
