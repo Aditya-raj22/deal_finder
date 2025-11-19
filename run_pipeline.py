@@ -30,8 +30,8 @@ def run_pipeline(config_path="config/config.yaml"):
     logger.info(f"TA: {config.THERAPEUTIC_AREA}")
     logger.info(f"Date range: {config.START_DATE} to {config.end_date_resolved}")
 
-    # Initialize ChromaDB
-    cache = ChromaArticleCache(embedding_model="all-mpnet-base-v2")
+    # Initialize ChromaDB (use same model as embeddings)
+    cache = ChromaArticleCache(embedding_model="all-MiniLM-L6-v2")
     stats = cache.get_stats()
     logger.info(f"ChromaDB: {stats['total_articles']} articles")
 
