@@ -312,17 +312,20 @@ class OpenAIExtractor:
         for i in range(0, len(articles), self.quick_filter_batch):
             batch = articles[i:i + self.quick_filter_batch]
 
-            prompt = f"""For each article below, determine if it describes a deal in {therapeutic_area} at the RIGHT development stage.
+            prompt = f"""For each article below, determine if it describes a BIOTECH DEAL in {therapeutic_area} at the RIGHT development stage.
 
 PASS if ALL conditions are met:
-1. Article describes a business deal (M&A, partnership, licensing, collaboration)
-2. Deal is related to {therapeutic_area} (Oncology is OK if {therapeutic_area}-related)
+1. Article describes a BIOTECH BUSINESS DEAL: M&A (acquisition/merger), partnership, licensing agreement, or option-to-license
+2. Deal is related to {therapeutic_area} (related areas like oncology subfields are OK)
 3. PRIMARY asset development stage is ONE OF: {stages_text}
 
-REJECT if:
-- Development stage is NOT in the allowed list: {not_allowed}
-- Not a deal (just news, research results, opinion)
-- Wrong therapeutic area
+REJECT if ANY of these:
+- NOT a deal (just news, research, clinical trial results, regulatory approvals, opinion pieces, conference coverage)
+- NOT a biotech deal type (exclude: equity investments, IPOs, fundraising rounds, stock offerings, grants, research funding)
+- Development stage NOT in allowed list: {not_allowed}
+- Wrong therapeutic area (not related to {therapeutic_area})
+
+CRITICAL: Only PASS articles about M&A, partnerships, licensing, or option-to-license deals.
 
 For each article below, return {{"passes": true}} or {{"passes": false}}
 
@@ -485,13 +488,17 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
         stages_text = ", ".join(allowed_stages)
         not_allowed = "Any stages NOT in this list should be REJECTED"
 
-        prompt = f"""Extract {therapeutic_area}-related business deal information from these articles.
+        prompt = f"""Extract {therapeutic_area}-related BIOTECH DEAL information from these articles.
 
 TARGET THERAPEUTIC AREA: {therapeutic_area}
 Include terms: {', '.join(ta_includes[:20])}
 
 ALLOWED DEVELOPMENT STAGES: {stages_text}
 REJECT if stage is NOT in the allowed list: {not_allowed}
+
+CRITICAL DEAL TYPE VALIDATION:
+- ONLY extract if article describes: M&A (acquisition/merger), partnership, licensing agreement, or option-to-license
+- REJECT (return null) if article describes: equity investment, IPO, fundraising, stock offering, grant, research funding, clinical trial results, regulatory approval, conference news, opinion piece
 
 For each article, extract:
 - parties (acquirer, target) - extract what's mentioned, use null if not found

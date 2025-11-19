@@ -3,9 +3,9 @@
 # Therapeutic Area to search for
 THERAPEUTIC_AREA: "immunology_inflammation"
 
-# Date range
-START_DATE: "2021-01-01"
-END_DATE: null  # null = runtime UTC date
+# Date range (post-2021 filter for all searches)
+START_DATE: "2021-01-01"  # REQUIRED: Only articles from 2021 onwards
+END_DATE: null  # null = runtime UTC date (today)
 
 # Early stage allowed phases
 EARLY_STAGE_ALLOWED:

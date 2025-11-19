@@ -17,6 +17,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def deals_by_stage(deals: list, stage_keywords: list) -> list:
+    """Filter deals by stage keywords (case-insensitive).
+
+    Args:
+        deals: List of Deal objects
+        stage_keywords: List of stage strings to match (e.g., ["phase 1", "phase I"])
+
+    Returns:
+        Filtered list of deals matching any of the stage keywords
+    """
+    stage_keywords_lower = [s.lower() for s in stage_keywords]
+    return [
+        deal for deal in deals
+        if deal.stage and deal.stage.lower() in stage_keywords_lower
+    ]
+
+
 def run_pipeline(config_path="config/config.yaml"):
     """Run pipeline with ChromaDB semantic search."""
 
@@ -158,18 +175,45 @@ def run_pipeline(config_path="config/config.yaml"):
 
     logger.info(f"✓ {len(deals)} deals extracted, {len(rejected)} rejected")
 
-    # STEP 4: Save to Excel
+    # STEP 4: Split deals by stage and save to 3 Excel files
     if deals:
         logger.info("\n" + "="*80)
-        logger.info("STEP 4: Save to Excel")
+        logger.info("STEP 4: Split by Stage & Save to Excel")
         logger.info("="*80)
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output = Path("output") / f"deals_{config.THERAPEUTIC_AREA}_{timestamp}.xlsx"
-        output.parent.mkdir(exist_ok=True)
+        # Define stage groups
+        early_stages = deals_by_stage(deals, ["preclinical", "pre-clinical", "phase 1", "phase I", "phase i", "first-in-human", "FIH", "discovery"])
+        mid_stages = deals_by_stage(deals, ["phase 2", "phase II", "phase ii", "phase 3", "phase III", "phase iii"])
+        undisclosed_stages = deals_by_stage(deals, ["unknown", "undisclosed", "not specified", "clinical"])
 
-        ExcelWriter().write(deals, str(output))
-        logger.info(f"✓ Saved to {output}")
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_dir = Path("output")
+        output_dir.mkdir(exist_ok=True)
+
+        ta_clean = config.THERAPEUTIC_AREA.replace(" ", "_")
+
+        # Save 3 separate files
+        files_written = []
+
+        if early_stages:
+            output_early = output_dir / f"deals_{ta_clean}_EARLY_STAGE_{timestamp}.xlsx"
+            ExcelWriter().write(early_stages, str(output_early))
+            logger.info(f"✓ Early Stage (Preclinical/Phase 1): {len(early_stages)} deals → {output_early.name}")
+            files_written.append(output_early)
+
+        if mid_stages:
+            output_mid = output_dir / f"deals_{ta_clean}_MID_STAGE_{timestamp}.xlsx"
+            ExcelWriter().write(mid_stages, str(output_mid))
+            logger.info(f"✓ Mid Stage (Phase 2/3): {len(mid_stages)} deals → {output_mid.name}")
+            files_written.append(output_mid)
+
+        if undisclosed_stages:
+            output_unk = output_dir / f"deals_{ta_clean}_UNDISCLOSED_{timestamp}.xlsx"
+            ExcelWriter().write(undisclosed_stages, str(output_unk))
+            logger.info(f"✓ Undisclosed/Unknown: {len(undisclosed_stages)} deals → {output_unk.name}")
+            files_written.append(output_unk)
+
+        logger.info(f"\n✓ Saved {len(files_written)} Excel files ({len(deals)} total deals)")
 
     # Save parsing checkpoint
     with gzip.open("output/parsing_checkpoint.json.gz", 'wt') as f:
