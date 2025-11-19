@@ -14,8 +14,11 @@ Features:
 """
 
 import logging
+import time
+import multiprocessing as mp
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+from functools import partial
 
 from deal_finder.storage.content_cache import ContentCache
 from deal_finder.storage.article_cache_chroma import ChromaArticleCache
@@ -93,6 +96,8 @@ class EmbeddingService:
         succeeded = 0
         failed = 0
         offset = 0
+        start_time = time.time()
+        last_checkpoint_time = start_time
 
         while processed < total_to_process:
             # Fetch batch of pending articles
@@ -103,18 +108,38 @@ class EmbeddingService:
                 logger.info("No more pending articles")
                 break
 
-            # Process batch
+            # Process batch with timing
+            batch_start = time.time()
             batch_results = self._process_batch(articles)
+            batch_time = time.time() - batch_start
+
             succeeded += batch_results['succeeded']
             failed += batch_results['failed']
             processed += len(articles)
 
+            # Calculate metrics
+            elapsed = time.time() - start_time
+            articles_per_sec = processed / elapsed if elapsed > 0 else 0
+            remaining = total_to_process - processed
+            eta_seconds = remaining / articles_per_sec if articles_per_sec > 0 else 0
+
             # Checkpoint logging
             if processed % checkpoint_every == 0 or processed == total_to_process:
+                checkpoint_elapsed = time.time() - last_checkpoint_time
                 logger.info(
                     f"Progress: {processed}/{total_to_process} articles "
-                    f"({succeeded} succeeded, {failed} failed)"
+                    f"({100*processed/total_to_process:.1f}%) | "
+                    f"{articles_per_sec:.1f} articles/sec | "
+                    f"ETA: {_format_time(eta_seconds)} | "
+                    f"Last {checkpoint_every}: {_format_time(checkpoint_elapsed)}"
                 )
+                last_checkpoint_time = time.time()
+
+            # Show per-batch progress for visibility
+            logger.info(
+                f"  Batch {processed//batch_size}: {len(articles)} articles in {batch_time:.1f}s "
+                f"({len(articles)/batch_time:.1f} articles/sec)"
+            )
 
         logger.info(
             f"✓ Embedding complete: {processed} processed, "
@@ -266,3 +291,24 @@ class EmbeddingService:
         """Close database connections."""
         self.content_cache.close()
         # ChromaDB client doesn't need explicit close
+
+
+def _format_time(seconds: float) -> str:
+    """Format seconds into human-readable time string.
+
+    Args:
+        seconds: Time in seconds
+
+    Returns:
+        Formatted string like "2h 15m" or "45s"
+    """
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    elif seconds < 3600:
+        minutes = int(seconds / 60)
+        secs = int(seconds % 60)
+        return f"{minutes}m {secs}s"
+    else:
+        hours = int(seconds / 3600)
+        minutes = int((seconds % 3600) / 60)
+        return f"{hours}h {minutes}m"

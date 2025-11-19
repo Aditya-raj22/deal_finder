@@ -40,8 +40,8 @@ def run_pipeline(config_path="config/config.yaml"):
     logger.info("STEP 1: Semantic TA Filter (ChromaDB)")
     logger.info("="*80)
 
-    # Build rich query from TA
-    query = f"{config.THERAPEUTIC_AREA} pharmaceutical biotechnology therapeutic deals"
+    # Build rich query emphasizing deals/transactions in the TA
+    query = f"{config.THERAPEUTIC_AREA} deals partnerships acquisitions M&A licensing transactions agreements biotech pharma financial"
 
     # Get sources filter if available
     sources_filter = getattr(config, 'NEWS_SOURCES', None)
@@ -87,10 +87,21 @@ def run_pipeline(config_path="config/config.yaml"):
     else:
         # Use MPNet model for dedup too (better than MiniLM)
         extractor = OpenAIExtractor()
+        # Accept ALL stages - we'll let users filter in the UI
+        all_stages = [
+            "preclinical", "pre-clinical",
+            "phase 1", "phase I", "phase i",
+            "phase 2", "phase II", "phase ii",
+            "phase 3", "phase III", "phase iii",
+            "phase 4", "phase IV", "phase iv",
+            "first-in-human", "FIH",
+            "clinical", "discovery", "research",
+            "undisclosed", "unknown"
+        ]
         extractions = extractor.extract_batch(
             pipeline_articles,
             ta_vocab,
-            allowed_stages=config.EARLY_STAGE_ALLOWED
+            allowed_stages=all_stages
         )
 
         # Save checkpoint
@@ -103,9 +114,9 @@ def run_pipeline(config_path="config/config.yaml"):
             }, f)
         logger.info(f"✓ Saved {len(extractions)} extractions")
 
-    # STEP 3: Parse to Deal objects
+    # STEP 3: Parse to Deal objects (all stages included)
     logger.info("\n" + "="*80)
-    logger.info("STEP 3: Parse and Filter")
+    logger.info("STEP 3: Parse to Deal Objects")
     logger.info("="*80)
 
     deals = []
@@ -121,11 +132,7 @@ def run_pipeline(config_path="config/config.yaml"):
             rejected.append({"reason": "parse_failed"})
             continue
 
-        # Filter by stage
-        stage = parsed.get('stage', '').lower()
-        if not any(s.lower() in stage for s in config.EARLY_STAGE_ALLOWED):
-            rejected.append({"reason": "stage_filter", "stage": stage})
-            continue
+        # No stage filtering - include all stages and let users filter in UI
 
         # Convert to Deal model
         try:

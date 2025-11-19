@@ -135,7 +135,7 @@ class DealExtraction(BaseModel):
 class OpenAIExtractor:
     """Extract deals using GPT-4o-mini with two-pass filtering and parallel processing."""
 
-    def __init__(self, api_key: Optional[str] = None, batch_size: int = 10, quick_filter_batch: int = 20):
+    def __init__(self, api_key: Optional[str] = None, batch_size: int = 20, quick_filter_batch: int = 40):
         """Initialize OpenAI extractor.
 
         Args:
@@ -443,9 +443,9 @@ For each article below, return {{"passes": true}} or {{"passes": false}}
                         }, f)
                     logger.info(f"✓ Saved checkpoint at {articles_processed} articles")
 
-                # Delay between batches to avoid rate limits (1.5s = ~40 batches/min)
+                # Delay between batches to avoid rate limits (0.5s = faster processing)
                 if batch_idx < len(batches) - 1:
-                    time.sleep(1.5)
+                    time.sleep(0.5)  # Reduced from 1.5s - upgrade VM to handle higher throughput
 
             except Exception as e:
                 logger.error(f"Extraction batch failed at index {articles_processed}: {e}")
@@ -497,13 +497,28 @@ For each article, extract:
 - parties (acquirer, target) - extract what's mentioned, use null if not found
 - deal_type (M&A, partnership, licensing, option-to-license) - use "partnership" if unclear
 - date_announced (YYYY-MM-DD) - extract if mentioned, use null otherwise
-- money (upfront, contingent, total in millions USD, currency) - use null if not mentioned
+- money - CAREFULLY extract financial terms (all values in millions USD):
+  * upfront_value: Initial payment (e.g., "$50M upfront" → 50, "$2 billion" → 2000, "€40M" → 40 with currency=EUR)
+  * contingent_payment: Milestone/earnout payments (e.g., "$300M in milestones" → 300, "up to $1B" → 1000)
+  * total_deal_value: Total deal value (e.g., "$350M total" → 350, or upfront + contingent if total not stated)
+  * currency: Original currency code (USD, EUR, GBP, JPY, etc.)
+  * SPECIAL CASES:
+    - "undisclosed" / "not disclosed" / "terms not disclosed" → use null for all money fields
+    - "up to $X" → use X as the value (it's the maximum)
+    - "$X billion" → multiply by 1000 (e.g., "$2B" → 2000)
+    - If only total is mentioned, put it in total_deal_value, leave upfront/contingent as null
+    - If upfront + milestones mentioned separately, extract both AND calculate total
+  * EXAMPLES:
+    - "$50M upfront, $200M milestones" → upfront: 50, contingent: 200, total: 250
+    - "up to $1 billion" → total: 1000
+    - "$75 million acquisition" → upfront: 75, total: 75
+    - "undisclosed financial terms" → all null
 - asset_focus (drug/therapy name) - use "Undisclosed" if not mentioned
 - stage (preclinical, phase 1, phase 1a, phase 1b, first-in-human, discovery, etc.) - use "unknown" if not mentioned
 - therapeutic_area_match (true/false) - true if related to {therapeutic_area}
 - geography (country/region) - use null if not mentioned
 - confidence (high/medium/low)
-- key_evidence (brief quote from article)
+- key_evidence (brief quote from article that includes deal parties and financial terms if mentioned)
 
 CRITICAL STAGE FILTERING:
 - ONLY extract deals where the PRIMARY asset stage is in the allowed list: {stages_text}
@@ -579,6 +594,147 @@ IMPORTANT:
             logger.error(f"Structured extraction failed: {e}")
             return [None] * len(articles)
 
+    def _extract_financials_regex_fallback(self, content: str) -> dict:
+        """Fallback regex-based financial extractor for when OpenAI misses values.
+
+        Looks for common patterns like:
+        - "$50M upfront"
+        - "$200 million in milestones"
+        - "$1.5 billion acquisition"
+        - "€40M"
+
+        Args:
+            content: Article text
+
+        Returns:
+            Dict with extracted financial values (in millions USD)
+        """
+        import re
+
+        result = {
+            "upfront_value": None,
+            "contingent_payment": None,
+            "total_deal_value": None,
+            "currency": "USD"
+        }
+
+        # Pattern: $X million/billion (or M/B shorthand)
+        # Matches: $50M, $200 million, $1.5B, $2.3 billion, €40M, £100M
+        patterns = [
+            # Currency symbol + number + M/B/million/billion
+            r'([€£$¥])?\s*(\d+(?:\.\d+)?)\s*(million|billion|M|B)(?:\s+(?:upfront|initial|down))?',
+            # "up to $X" constructions
+            r'up to\s+([€£$¥])?\s*(\d+(?:\.\d+)?)\s*(million|billion|M|B)',
+            # Milestone patterns
+            r'(\d+(?:\.\d+)?)\s*(million|billion|M|B)\s+(?:in\s+)?(?:milestones|contingent|earnout)',
+        ]
+
+        all_values = []
+        for pattern in patterns:
+            matches = re.finditer(pattern, content, re.IGNORECASE)
+            for match in matches:
+                # Extract currency (if present)
+                currency_symbol = match.group(1) if len(match.groups()) >= 1 else None
+                # Extract number
+                number_str = match.group(2) if len(match.groups()) >= 2 else match.group(1)
+                # Extract unit (million/billion)
+                unit = match.group(3) if len(match.groups()) >= 3 else match.group(2)
+
+                try:
+                    value = float(number_str)
+
+                    # Convert to millions
+                    if unit.lower() in ['b', 'billion']:
+                        value *= 1000
+
+                    # Map currency symbol
+                    currency_map = {'$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY'}
+                    currency = currency_map.get(currency_symbol, 'USD')
+
+                    all_values.append({
+                        'value': value,
+                        'currency': currency,
+                        'text': match.group(0)
+                    })
+                except ValueError:
+                    continue
+
+        # If we found values, use the first one as total (simple heuristic)
+        if all_values:
+            result['total_deal_value'] = all_values[0]['value']
+            result['currency'] = all_values[0]['currency']
+            logger.info(f"Regex fallback extracted: {all_values[0]['value']}M {all_values[0]['currency']}")
+
+        return result
+
+    def _validate_and_fix_financials(self, money: dict) -> dict:
+        """Validate and fix financial data extracted by OpenAI.
+
+        Handles common extraction errors:
+        - Billion/million confusion
+        - Missing total when upfront + contingent provided
+        - Negative values
+        - Unrealistic values (>$100B or <$0.1M for biotech deals)
+
+        Args:
+            money: Raw money dict from extraction
+
+        Returns:
+            Cleaned money dict
+        """
+        if not isinstance(money, dict):
+            return {}
+
+        cleaned = {}
+
+        # Extract values
+        upfront = money.get("upfront_value")
+        contingent = money.get("contingent_payment")
+        total = money.get("total_deal_value")
+        currency = money.get("currency", "USD")
+
+        # Clean up values (convert to float, handle None)
+        def clean_value(val):
+            if val is None:
+                return None
+            try:
+                val = float(val)
+                # Filter out unrealistic values
+                if val < 0:
+                    logger.warning(f"Negative financial value detected: {val}, setting to null")
+                    return None
+                if val > 200000:  # >$200B in millions is unrealistic for biotech
+                    logger.warning(f"Unrealistic value detected (might be billions as millions): {val}")
+                    # Could be billions misinterpreted - don't auto-fix, just warn
+                return val
+            except (ValueError, TypeError):
+                return None
+
+        upfront = clean_value(upfront)
+        contingent = clean_value(contingent)
+        total = clean_value(total)
+
+        # Auto-calculate total if missing but components provided
+        if total is None and upfront is not None and contingent is not None:
+            total = upfront + contingent
+            logger.info(f"Calculated total: {upfront} + {contingent} = {total}")
+
+        # Validate: total should be >= upfront + contingent
+        if total is not None and upfront is not None and contingent is not None:
+            calculated_total = upfront + contingent
+            if abs(total - calculated_total) > 1.0:  # Allow 1M rounding error
+                logger.warning(
+                    f"Total mismatch: stated={total}, calculated={calculated_total}. "
+                    f"Using stated total."
+                )
+
+        cleaned["upfront_value"] = upfront
+        cleaned["contingent_payment"] = contingent
+        cleaned["total_deal_value"] = total
+        cleaned["currency"] = currency
+
+        return cleaned
+
     def parse_extracted_deal(
         self,
         extraction: dict,
@@ -605,13 +761,31 @@ IMPORTANT:
             flattened["target"] = parties.get("target")
             flattened["acquirer"] = parties.get("acquirer")
 
-        # Extract money (nested)
+        # Extract and validate money (nested)
         money = extraction.get("money", {})
         if isinstance(money, dict):
-            flattened["upfront_value_usd"] = money.get("upfront_value")
-            flattened["contingent_payment_usd"] = money.get("contingent_payment")
-            flattened["total_deal_value_usd"] = money.get("total_deal_value")
-            flattened["currency"] = money.get("currency", "USD")
+            # Apply validation and cleanup
+            cleaned_money = self._validate_and_fix_financials(money)
+
+            # Regex fallback: if all money fields are null, try regex extraction on key_evidence
+            if (cleaned_money.get("upfront_value") is None and
+                cleaned_money.get("contingent_payment") is None and
+                cleaned_money.get("total_deal_value") is None):
+
+                key_evidence = extraction.get("key_evidence", "")
+                if key_evidence:
+                    logger.info("OpenAI missed financial data, trying regex fallback on key_evidence...")
+                    regex_money = self._extract_financials_regex_fallback(key_evidence)
+
+                    # Use regex values if found
+                    if regex_money.get("total_deal_value") is not None:
+                        cleaned_money.update(regex_money)
+                        logger.info(f"Regex fallback succeeded: {regex_money}")
+
+            flattened["upfront_value_usd"] = cleaned_money.get("upfront_value")
+            flattened["contingent_payment_usd"] = cleaned_money.get("contingent_payment")
+            flattened["total_deal_value_usd"] = cleaned_money.get("total_deal_value")
+            flattened["currency"] = cleaned_money.get("currency", "USD")
 
         # Copy flat fields
         flattened["url"] = extraction.get("url")

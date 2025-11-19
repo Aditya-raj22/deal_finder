@@ -56,3 +56,6 @@ config/secrets.yaml
 .env
 .env.example
 CURRENT_STATUS.md
+google-cloud-sdk/
+google-cloud-cli-*.tar.gz
+*.pyc

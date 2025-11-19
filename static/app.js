@@ -219,19 +219,24 @@ async function startPipeline() {
         .map(input => input.value.trim())
         .filter(val => val.length > 0);
 
-    const stages = Array.from(document.querySelectorAll('input[type="checkbox"][value]'))
-        .filter(cb => cb.checked && !cb.classList.contains('source-checkbox'))
-        .map(cb => cb.value);
+    // Include ALL stages - users will filter in the output
+    const stages = [
+        "preclinical", "pre-clinical",
+        "phase 1", "phase I", "phase i",
+        "phase 2", "phase II", "phase ii",
+        "phase 3", "phase III", "phase iii",
+        "phase 4", "phase IV", "phase iv",
+        "first-in-human", "FIH",
+        "clinical", "discovery", "research",
+        "undisclosed", "unknown"
+    ];
+
     const sources = Array.from(document.querySelectorAll('.source-checkbox:checked'))
         .map(cb => cb.value);
 
     // Validation
     if (taKeywords.length === 0) {
         logConsole('Error: Enter at least one therapeutic area/indication', 'error');
-        return;
-    }
-    if (stages.length === 0) {
-        logConsole('Error: Select at least one development stage', 'error');
         return;
     }
     if (sources.length === 0) {
@@ -255,7 +260,7 @@ async function startPipeline() {
         if (response.ok) {
             const result = await response.json();
             logConsole(`Starting pipeline for: ${taKeywords.join(', ')}`, 'success');
-            logConsole(`Stages: ${stages.join(', ')}`, 'info');
+            logConsole(`Stages: All stages included`, 'info');
             logConsole(`Sources: ${sources.length} selected`, 'info');
             updateButtons(true);
         } else {
