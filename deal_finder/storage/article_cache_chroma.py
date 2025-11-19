@@ -187,28 +187,30 @@ class ChromaArticleCache:
             end_date = datetime.now(timezone.utc).date().isoformat()
 
         # Build metadata filter (ChromaDB where clause)
-        where_filter = {
-            "$and": [
-                {"published_date": {"$gte": start_date}},
-                {"published_date": {"$lte": end_date}}
-            ]
-        }
-
+        # Note: ChromaDB can't do $gte/$lte on string dates, so we only filter by source
+        where_filter = None
         if sources:
-            where_filter["$and"].append({"source": {"$in": sources}})
+            where_filter = {"source": {"$in": sources}}
 
-        # Query ChromaDB
+        # Query ChromaDB (get more results since we'll filter dates post-query)
         results = self.collection.query(
             query_texts=[query],
-            n_results=top_k,
+            n_results=top_k * 2,  # Get 2x results to account for date filtering
             where=where_filter,
             include=["documents", "metadatas", "distances"]
         )
 
-        # Convert to standard format
+        # Convert to standard format and filter by date
         articles = []
         if results['ids'] and results['ids'][0]:
             for i in range(len(results['ids'][0])):
+                metadata = results['metadatas'][0][i]
+                published_date = metadata.get('published_date', '')
+
+                # Filter by date (string comparison works for YYYY-MM-DD format)
+                if published_date < start_date or published_date > end_date:
+                    continue
+
                 # ChromaDB returns distance (lower = more similar)
                 # Convert to similarity (higher = more similar)
                 distance = results['distances'][0][i]
@@ -218,16 +220,19 @@ class ChromaArticleCache:
                 if similarity_threshold and similarity < similarity_threshold:
                     continue
 
-                metadata = results['metadatas'][0][i]
                 articles.append({
                     'url': results['ids'][0][i],
                     'title': metadata['title'],
                     'content_snippet': results['documents'][0][i].split(' ', 1)[1] if ' ' in results['documents'][0][i] else '',
-                    'published_date': metadata['published_date'],
+                    'published_date': published_date,
                     'source': metadata['source'],
                     'similarity': float(similarity),
                     'distance': float(distance)
                 })
+
+                # Stop once we have enough results
+                if len(articles) >= top_k:
+                    break
 
         return articles
 
