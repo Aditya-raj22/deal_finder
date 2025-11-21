@@ -312,20 +312,23 @@ class OpenAIExtractor:
         for i in range(0, len(articles), self.quick_filter_batch):
             batch = articles[i:i + self.quick_filter_batch]
 
-            prompt = f"""For each article below, determine if it describes a BIOTECH DEAL in {therapeutic_area} at the RIGHT development stage.
+            prompt = f"""For each article below, determine if it describes a SPECIFIC BIOTECH DEAL in {therapeutic_area}.
 
-PASS if ALL conditions are met:
-1. Article describes a BIOTECH BUSINESS DEAL: M&A (acquisition/merger), partnership, licensing agreement, or option-to-license
-2. Deal is related to {therapeutic_area} (related areas like oncology subfields are OK)
-3. PRIMARY asset development stage is ONE OF: {stages_text}
+CRITICAL REJECTION CRITERIA - REJECT if ANY:
+1. Article title/URL contains: "Financings", "Roundup", "Money raised", "Earnings", "Appointments", "Other news", "Week in review", "Top deals"
+2. Article is a COMPILATION/LIST of multiple deals (not a specific single deal announcement)
+3. Article published BEFORE 2021-01-01
+4. NOT a biotech deal: fundraising, IPO, stock offering, equity investment, grant, research funding
+5. NOT a deal announcement: clinical trial results, regulatory approvals, research findings, opinion pieces, conference coverage
+6. Development stage NOT in allowed list: {not_allowed}
+7. Wrong therapeutic area (not related to {therapeutic_area})
 
-REJECT if ANY of these:
-- NOT a deal (just news, research, clinical trial results, regulatory approvals, opinion pieces, conference coverage)
-- NOT a biotech deal type (exclude: equity investments, IPOs, fundraising rounds, stock offerings, grants, research funding)
-- Development stage NOT in allowed list: {not_allowed}
-- Wrong therapeutic area (not related to {therapeutic_area})
-
-CRITICAL: Only PASS articles about M&A, partnerships, licensing, or option-to-license deals.
+PASS ONLY if ALL conditions met:
+1. Single specific deal announcement between named companies
+2. Deal type: M&A (acquisition/merger), partnership, licensing agreement, or option-to-license
+3. Related to {therapeutic_area}
+4. PRIMARY asset development stage is ONE OF: {stages_text}
+5. Published 2021 or later
 
 For each article below, return {{"passes": true}} or {{"passes": false}}
 

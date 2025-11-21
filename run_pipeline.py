@@ -52,29 +52,56 @@ def run_pipeline(config_path="config/config.yaml"):
     stats = cache.get_stats()
     logger.info(f"ChromaDB: {stats['total_articles']} articles")
 
-    # STEP 1: Semantic search (low threshold = no false negatives)
+    # STEP 1: Dual Embedding Filter (TA + Deal relevance)
     logger.info("\n" + "="*80)
-    logger.info("STEP 1: Semantic TA Filter (ChromaDB)")
+    logger.info("STEP 1: Dual Semantic Filter (TA + Deal Relevance)")
     logger.info("="*80)
-
-    # Build rich query emphasizing deals/transactions in the TA
-    query = f"{config.THERAPEUTIC_AREA} deals partnerships acquisitions M&A licensing transactions agreements biotech pharma financial"
 
     # Get sources filter if available
     sources_filter = getattr(config, 'NEWS_SOURCES', None)
     if sources_filter:
         logger.info(f"Filtering by sources: {', '.join(sources_filter)}")
 
-    articles = cache.search_articles_semantic(
-        query=query,
+    articles = cache.search_articles_dual_filter(
+        therapeutic_area=config.THERAPEUTIC_AREA,
         start_date=config.START_DATE,
         end_date=config.end_date_resolved,
         sources=sources_filter,
-        top_k=50000,  # No practical limit (most TAs have <10k matches)
-        similarity_threshold=0.20  # Low = minimize false negatives
+        top_k=10000,  # Cap at 10K after dual filter
+        similarity_threshold=0.20
     )
 
-    logger.info(f"✓ Found {len(articles)} articles (threshold=0.20 for max recall)")
+    logger.info(f"✓ Dual filter passed: {len(articles)} articles")
+
+    # URL pattern filtering - reject known non-deal patterns
+    import re
+    reject_patterns = [
+        r'/financings?(-roundup)?/?$',
+        r'/appointments-and-advancements',
+        r'/other-news-to-note',
+        r'/earnings/?$',
+        r'/regulatory-front',
+        r'/in-the-clinic',
+        r'/week-in-review',
+        r'/word-on-the-street',
+        r'collaborations-.*-agreements-.*-\d{4}',  # Compilation articles
+        r'manufacturing-marketing-and-distribution-agreements',
+        r'money-raised-by-biotech',
+        r'top-.*-deals',
+        r'top-.*-financings',
+        r'biotech-.*-collaborations-.*-agreements',
+    ]
+
+    def should_reject_url(url: str) -> bool:
+        """Check if URL matches rejection patterns."""
+        for pattern in reject_patterns:
+            if re.search(pattern, url, re.IGNORECASE):
+                return True
+        return False
+
+    articles_before_url_filter = len(articles)
+    articles = [a for a in articles if not should_reject_url(a['url'])]
+    logger.info(f"✓ URL filter: {articles_before_url_filter} → {len(articles)} articles (removed {articles_before_url_filter - len(articles)} compilation/roundup pages)")
 
     if not articles:
         logger.warning("No articles found!")

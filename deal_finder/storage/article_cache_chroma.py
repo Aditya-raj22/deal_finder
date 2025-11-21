@@ -161,6 +161,70 @@ class ChromaArticleCache:
             if i % 1000 == 0:
                 logger.info(f"Upserted {i}/{len(articles)} articles")
 
+    def search_articles_dual_filter(
+        self,
+        therapeutic_area: str,
+        start_date: str = "2021-01-01",
+        end_date: Optional[str] = None,
+        sources: Optional[List[str]] = None,
+        top_k: int = 500,
+        similarity_threshold: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """Search using dual embedding filter: TA relevance + Deal relevance.
+
+        This filters out non-deals (financings, roundups, etc.) by requiring articles
+        to be similar to BOTH the therapeutic area AND deal-related terms.
+
+        Args:
+            therapeutic_area: Therapeutic area (e.g., "immunology")
+            start_date: Start date filter (YYYY-MM-DD)
+            end_date: End date filter (YYYY-MM-DD)
+            sources: Filter by sources
+            top_k: Maximum results
+            similarity_threshold: Minimum similarity (0-1)
+
+        Returns:
+            List of articles passing both TA and deal filters
+        """
+        logger.info("Using dual embedding filter (TA + Deal relevance)")
+
+        # Query 1: TA relevance
+        ta_query = f"{therapeutic_area} therapy treatment drug disease indication"
+        logger.info(f"TA query: {ta_query}")
+        ta_results = self.search_articles_semantic(
+            query=ta_query,
+            start_date=start_date,
+            end_date=end_date,
+            sources=sources,
+            top_k=top_k * 2,  # Get 2x to ensure good intersection
+            similarity_threshold=similarity_threshold
+        )
+
+        # Query 2: Deal relevance
+        deal_query = "acquisition merger partnership licensing deal transaction agreement corporate business M&A collaboration"
+        logger.info(f"Deal query: {deal_query}")
+        deal_results = self.search_articles_semantic(
+            query=deal_query,
+            start_date=start_date,
+            end_date=end_date,
+            sources=sources,
+            top_k=top_k * 2,
+            similarity_threshold=similarity_threshold
+        )
+
+        # Intersection: Must appear in BOTH result sets
+        ta_urls = {a['url'] for a in ta_results}
+        deal_urls = {a['url'] for a in deal_results}
+        both_urls = ta_urls & deal_urls
+
+        logger.info(f"TA results: {len(ta_results)}, Deal results: {len(deal_results)}, Intersection: {len(both_urls)}")
+
+        # Return articles from TA results that also passed deal filter
+        # Use TA results as base to preserve TA similarity scores
+        filtered = [a for a in ta_results if a['url'] in both_urls]
+
+        return filtered[:top_k]
+
     def search_articles_semantic(
         self,
         query: str,
@@ -212,6 +276,9 @@ class ChromaArticleCache:
                 published_date = metadata.get('published_date', '')
 
                 # Filter by date (string comparison works for YYYY-MM-DD format)
+                # Also reject empty or malformed dates
+                if not published_date or len(published_date) < 10:
+                    continue
                 if published_date < start_date or published_date > end_date:
                     continue
 
