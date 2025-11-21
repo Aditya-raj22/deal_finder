@@ -62,9 +62,12 @@ def run_pipeline(config_path="config/config.yaml"):
     if sources_filter:
         logger.info(f"Filtering by sources: {', '.join(sources_filter)}")
 
-    # Get more results initially (will filter down)
-    articles = cache.search_articles_dual_filter(
-        therapeutic_area=config.THERAPEUTIC_AREA,
+    # Single combined query (works better than dual filter)
+    query = f"{config.THERAPEUTIC_AREA} deals partnerships acquisitions licensing M&A biotech pharma transactions agreements"
+    logger.info(f"Query: {query}")
+
+    articles = cache.search_articles_semantic(
+        query=query,
         start_date=config.START_DATE,
         end_date=config.end_date_resolved,
         sources=sources_filter,
@@ -72,7 +75,7 @@ def run_pipeline(config_path="config/config.yaml"):
         similarity_threshold=0.20
     )
 
-    logger.info(f"✓ Dual filter passed: {len(articles)} articles")
+    logger.info(f"✓ Semantic search: {len(articles)} articles")
 
     # URL pattern filtering + Date validation - reject known non-deal patterns
     import re
