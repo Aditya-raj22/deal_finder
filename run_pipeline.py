@@ -153,6 +153,11 @@ def run_pipeline(config_path="config/config.yaml"):
 
         # Convert to Deal model
         try:
+            # Map confidence string to Decimal
+            confidence_map = {'high': Decimal('0.9'), 'medium': Decimal('0.7'), 'low': Decimal('0.5')}
+            confidence_str = parsed.get('confidence', 'medium')
+            confidence_decimal = confidence_map.get(confidence_str, Decimal('0.7'))
+
             deal = Deal(
                 date_announced=datetime.fromisoformat(parsed['date_announced']).date() if parsed.get('date_announced') else None,
                 target=parsed.get('target'),
@@ -166,8 +171,8 @@ def run_pipeline(config_path="config/config.yaml"):
                 contingent_payment_usd=Decimal(str(parsed['contingent_payment_usd'])) if parsed.get('contingent_payment_usd') else None,
                 total_deal_value_usd=Decimal(str(parsed['total_deal_value_usd'])) if parsed.get('total_deal_value_usd') else None,
                 geography=parsed.get('geography'),
-                key_evidence=parsed.get('key_evidence', ''),
-                confidence=parsed.get('confidence', 'medium')
+                confidence=confidence_decimal,
+                timestamp_utc=datetime.now(timezone.utc).isoformat()
             )
             deals.append(deal)
         except Exception as e:
