@@ -62,18 +62,19 @@ def run_pipeline(config_path="config/config.yaml"):
     if sources_filter:
         logger.info(f"Filtering by sources: {', '.join(sources_filter)}")
 
+    # Get more results initially (will filter down)
     articles = cache.search_articles_dual_filter(
         therapeutic_area=config.THERAPEUTIC_AREA,
         start_date=config.START_DATE,
         end_date=config.end_date_resolved,
         sources=sources_filter,
-        top_k=10000,  # Cap at 10K after dual filter
+        top_k=20000,  # Get 20K for filtering
         similarity_threshold=0.20
     )
 
     logger.info(f"✓ Dual filter passed: {len(articles)} articles")
 
-    # URL pattern filtering - reject known non-deal patterns
+    # URL pattern filtering + Date validation - reject known non-deal patterns
     import re
     reject_patterns = [
         r'/financings?(-roundup)?/?$',
@@ -92,16 +93,33 @@ def run_pipeline(config_path="config/config.yaml"):
         r'biotech-.*-collaborations-.*-agreements',
     ]
 
-    def should_reject_url(url: str) -> bool:
-        """Check if URL matches rejection patterns."""
+    def should_reject(article: dict) -> bool:
+        """Check if article should be rejected based on URL pattern or bad date."""
+        url = article.get('url', '')
+        published_date = article.get('published_date', '')
+
+        # Reject bad URLs
         for pattern in reject_patterns:
             if re.search(pattern, url, re.IGNORECASE):
                 return True
+
+        # Reject bad/missing dates
+        if not published_date or len(published_date) < 10:
+            return True
+
+        # Reject dates before 2021 (double-check)
+        if published_date < config.START_DATE:
+            return True
+
         return False
 
-    articles_before_url_filter = len(articles)
-    articles = [a for a in articles if not should_reject_url(a['url'])]
-    logger.info(f"✓ URL filter: {articles_before_url_filter} → {len(articles)} articles (removed {articles_before_url_filter - len(articles)} compilation/roundup pages)")
+    articles_before_filter = len(articles)
+    articles = [a for a in articles if not should_reject(a)]
+    logger.info(f"✓ URL + Date filter: {articles_before_filter} → {len(articles)} articles")
+
+    # Now take top 1K by similarity score (already sorted by ChromaDB)
+    articles = articles[:1000]
+    logger.info(f"✓ Top 1K by embedding similarity: {len(articles)} articles")
 
     if not articles:
         logger.warning("No articles found!")
